@@ -7,12 +7,16 @@ import {
   Member,
 } from "@/types/model";
 
-// ML API Configuration - TEMPORARILY DISABLED FOR DEBUGGING
+// ML API Configuration - Production Ready
 const ML_API_BASE_URL =
   import.meta.env.VITE_ML_API_URL || "http://178.128.135.194";
 
-// DEBUGGING: Disable ML API to prevent hanging
-const ML_API_ENABLED = false;
+// ML API enabled for production deployment
+const ML_API_ENABLED = true;
+
+// Fallback configuration for simplified API
+const SIMPLIFIED_API_TIMEOUT = 10000; // 10 seconds
+const MAX_RETRY_ATTEMPTS = 2;
 
 // ML API Client
 class MLAPIClient {
@@ -22,6 +26,9 @@ class MLAPIClient {
   constructor(baseUrl: string = ML_API_BASE_URL, timeout: number = 30000) {
     this.baseUrl = baseUrl;
     this.timeout = timeout;
+    console.log(
+      `🤖 ML API Client initialized: ${baseUrl} (timeout: ${timeout}ms)`,
+    );
   }
 
   async classifyBuilding(model: StructuralModel): Promise<{
@@ -31,34 +38,78 @@ class MLAPIClient {
     alternativeTypes: { type: BuildingType; confidence: number }[];
     features: Record<string, number>;
   }> {
-    try {
-      const response = await fetch(`${this.baseUrl}/classify-building`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ model }),
-        signal: AbortSignal.timeout(this.timeout),
-      });
+    let lastError: Error | null = null;
 
-      if (!response.ok) {
-        throw new Error(
-          `ML API error: ${response.status} ${response.statusText}`,
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        console.log(
+          `🤖 Classifying building with ML API (attempt ${attempt}/${MAX_RETRY_ATTEMPTS})...`,
         );
-      }
 
-      const result = await response.json();
-      return {
-        buildingType: result.buildingType as BuildingType,
-        confidence: result.confidence,
-        reasoning: result.reasoning,
-        alternativeTypes: result.alternativeTypes,
-        features: result.features,
-      };
-    } catch (error) {
-      console.error("ML API building classification failed:", error);
-      throw error;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+          () => controller.abort(),
+          SIMPLIFIED_API_TIMEOUT,
+        );
+
+        const response = await fetch(`${this.baseUrl}/classify-building`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ model }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "Unknown error");
+          throw new Error(
+            `ML API error: ${response.status} ${response.statusText} - ${errorText}`,
+          );
+        }
+
+        const result = await response.json();
+        console.log(
+          `✅ Building classification successful (attempt ${attempt}):`,
+          {
+            buildingType: result.buildingType,
+            confidence: result.confidence,
+          },
+        );
+
+        return {
+          buildingType: result.buildingType as BuildingType,
+          confidence: result.confidence || 0.75,
+          reasoning: result.reasoning || ["ML API classification"],
+          alternativeTypes: result.alternativeTypes || [],
+          features: result.features || {},
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.warn(
+          `⚠️ Building classification attempt ${attempt} failed:`,
+          lastError.message,
+        );
+
+        if (attempt < MAX_RETRY_ATTEMPTS) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          console.log(`⏳ Retrying in ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
     }
+
+    console.error(
+      "❌ ML API building classification failed after all attempts:",
+      lastError,
+    );
+    throw (
+      lastError ||
+      new Error("Building classification failed after all retry attempts")
+    );
   }
 
   async classifyMembers(
@@ -69,32 +120,75 @@ class MLAPIClient {
     confidences: Record<string, number>;
     features: Record<string, Record<string, number>>;
   }> {
-    try {
-      const response = await fetch(`${this.baseUrl}/classify-members`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ model, memberIds }),
-        signal: AbortSignal.timeout(this.timeout),
-      });
+    let lastError: Error | null = null;
 
-      if (!response.ok) {
-        throw new Error(
-          `ML API error: ${response.status} ${response.statusText}`,
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        console.log(
+          `🏷️ Classifying members with ML API (attempt ${attempt}/${MAX_RETRY_ATTEMPTS})...`,
         );
-      }
 
-      const result = await response.json();
-      return {
-        memberTags: result.memberTags as Record<string, MemberTag>,
-        confidences: result.confidences,
-        features: result.features,
-      };
-    } catch (error) {
-      console.error("ML API member classification failed:", error);
-      throw error;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+          () => controller.abort(),
+          SIMPLIFIED_API_TIMEOUT,
+        );
+
+        const response = await fetch(`${this.baseUrl}/classify-members`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ model, memberIds }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "Unknown error");
+          throw new Error(
+            `ML API error: ${response.status} ${response.statusText} - ${errorText}`,
+          );
+        }
+
+        const result = await response.json();
+        console.log(
+          `✅ Member classification successful (attempt ${attempt}):`,
+          {
+            memberCount: Object.keys(result.memberTags || {}).length,
+          },
+        );
+
+        return {
+          memberTags: (result.memberTags as Record<string, MemberTag>) || {},
+          confidences: result.confidences || {},
+          features: result.features || {},
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.warn(
+          `⚠️ Member classification attempt ${attempt} failed:`,
+          lastError.message,
+        );
+
+        if (attempt < MAX_RETRY_ATTEMPTS) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          console.log(`⏳ Retrying in ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
     }
+
+    console.error(
+      "❌ ML API member classification failed after all attempts:",
+      lastError,
+    );
+    throw (
+      lastError ||
+      new Error("Member classification failed after all retry attempts")
+    );
   }
 
   async classifyComplete(model: StructuralModel): Promise<{
@@ -254,21 +348,72 @@ class MLAPIClient {
     models_loaded: boolean;
     version: string;
   }> {
-    try {
-      const response = await fetch(`${this.baseUrl}/health`, {
-        method: "GET",
-        signal: AbortSignal.timeout(5000),
-      });
+    let lastError: Error | null = null;
 
-      if (!response.ok) {
-        throw new Error(`Health check failed: ${response.status}`);
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        console.log(
+          `🏥 Checking ML API health at ${this.baseUrl}/health (attempt ${attempt}/${MAX_RETRY_ATTEMPTS})`,
+        );
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+          () => controller.abort(),
+          SIMPLIFIED_API_TIMEOUT,
+        );
+
+        const response = await fetch(`${this.baseUrl}/health`, {
+          method: "GET",
+          signal: controller.signal,
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(
+            `Health check failed: ${response.status} ${response.statusText}`,
+          );
+        }
+
+        const result = await response.json();
+        console.log(
+          `✅ ML API health check successful (attempt ${attempt}):`,
+          result,
+        );
+
+        // Ensure the response has the expected format
+        return {
+          status: result.status || "healthy",
+          models_loaded: result.models_loaded !== false, // Default to true if not specified
+          version: result.version || "1.0.0",
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.warn(
+          `⚠️ ML API health check attempt ${attempt} failed:`,
+          lastError.message,
+        );
+
+        if (attempt < MAX_RETRY_ATTEMPTS) {
+          // Wait before retry (exponential backoff)
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          console.log(`⏳ Retrying in ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
       }
-
-      return await response.json();
-    } catch (error) {
-      console.error("ML API health check failed:", error);
-      throw error;
     }
+
+    console.error(
+      "❌ ML API health check failed after all attempts:",
+      lastError,
+    );
+    throw (
+      lastError || new Error("Health check failed after all retry attempts")
+    );
   }
 
   async getModelInfo(): Promise<{
@@ -332,7 +477,7 @@ export class AIBuildingClassifier {
       };
     }
 
-    // DEBUGGING: Skip ML API entirely to prevent hanging
+    // Try ML API first with proper error handling
     if (ML_API_ENABLED && this.useMLAPI) {
       try {
         console.log("🤖 Attempting ML API classification...");
@@ -353,7 +498,9 @@ export class AIBuildingClassifier {
         }
       }
     } else {
-      console.log("🔧 ML API disabled for debugging - using rule-based only");
+      console.log(
+        "🔧 ML API disabled in configuration - using rule-based fallback",
+      );
     }
 
     console.log("🔧 Using rule-based classification...");
@@ -363,7 +510,7 @@ export class AIBuildingClassifier {
       ...ruleResult,
       source: "RULE_BASED",
       reasoning: [
-        "🔧 Rule-Based Classification (ML API disabled for debugging)",
+        "🔧 Rule-Based Classification (ML API fallback)",
         ...ruleResult.reasoning,
       ],
       predictionId,
@@ -381,6 +528,8 @@ export class AIBuildingClassifier {
       hasGeometry: !!model.geometry,
       modelType: model.type,
       units: model.units,
+      mlApiEnabled: ML_API_ENABLED,
+      mlApiUrl: ML_API_BASE_URL,
     });
 
     // Validate input model
@@ -1058,7 +1207,7 @@ export class AIBuildingClassifier {
       }
     });
 
-    // DEBUGGING: Skip ML API entirely to prevent hanging
+    // Try ML API for member tagging with proper timeout
     if (ML_API_ENABLED && this.useMLAPI) {
       try {
         console.log("🤖 Attempting ML API member tagging...");
@@ -1088,7 +1237,7 @@ export class AIBuildingClassifier {
       }
     } else {
       console.log(
-        "🔧 ML API disabled for debugging - using rule-based member tagging",
+        "🔧 ML API disabled in configuration - using rule-based member tagging",
       );
     }
 
@@ -1386,7 +1535,7 @@ export class AIBuildingClassifier {
 
               const geometry =
                 model.geometry || this.calculateGeometryFromNodes(model.nodes);
-              if (length > (geometry.buildingWidth || geometry.width) * 0.4) {
+              if (length > geometry.buildingWidth * 0.4) {
                 tags[memberId] = "MAIN_FRAME_RAFTER";
                 promoted++;
               }
@@ -1937,12 +2086,17 @@ export class AIBuildingClassifier {
 
   static async checkMLAPIHealth(): Promise<boolean> {
     try {
-      console.log("🏥 Checking ML API health...");
+      console.log(`🏥 Checking ML API health at ${ML_API_BASE_URL}/health`);
       const health = await mlApiClient.healthCheck();
-      console.log("✅ ML API is healthy:", health);
+      console.log(`✅ ML API is healthy:`, health);
       return health.status === "healthy" && health.models_loaded;
     } catch (error) {
       console.warn("⚠️ ML API health check failed:", error);
+      console.warn("🌐 ML API URL:", ML_API_BASE_URL);
+      console.warn(
+        "🔧 Error details:",
+        error instanceof Error ? error.message : String(error),
+      );
       return false;
     }
   }

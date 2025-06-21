@@ -231,16 +231,54 @@ function ModelUpload({ onModelUploaded = () => {} }: ModelUploadProps) {
       );
       console.log("📤 Invoking onModelUploaded callback...");
 
-      // Call parent callback and handle the response
+      // Call parent callback and handle the response with enhanced error handling
       console.log("📤 Calling onModelUploaded with validated model...");
       try {
-        await onModelUploaded(parsedModel);
+        // Add timeout to prevent hanging
+        const callbackPromise = onModelUploaded(parsedModel);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  "Model processing timeout - this may indicate an issue with MCP initialization",
+                ),
+              ),
+            30000,
+          ),
+        );
+
+        await Promise.race([callbackPromise, timeoutPromise]);
         console.log("✅ onModelUploaded callback completed successfully");
       } catch (callbackError) {
-        console.error("❌ onModelUploaded callback failed:", callbackError);
-        throw new Error(
-          `Model processing failed: ${callbackError instanceof Error ? callbackError.message : "Unknown error"}`,
-        );
+        console.error("❌ onModelUploaded callback failed:", {
+          error: callbackError,
+          message:
+            callbackError instanceof Error
+              ? callbackError.message
+              : "Unknown error",
+          stack:
+            callbackError instanceof Error
+              ? callbackError.stack
+              : "No stack trace",
+        });
+
+        // Provide more specific error messages
+        let errorMessage = "Model processing failed";
+        if (callbackError instanceof Error) {
+          if (callbackError.message.includes("timeout")) {
+            errorMessage =
+              "Model processing timed out. This may indicate an issue with the AI analysis or MCP initialization. Please try again or contact support.";
+          } else if (callbackError.message.includes("MCP")) {
+            errorMessage = `MCP initialization failed: ${callbackError.message}. Please try uploading the model again.`;
+          } else if (callbackError.message.includes("ML API")) {
+            errorMessage = `AI analysis failed: ${callbackError.message}. The system will use rule-based analysis instead.`;
+          } else {
+            errorMessage = `Model processing failed: ${callbackError.message}`;
+          }
+        }
+
+        throw new Error(errorMessage);
       }
 
       // Set final success state
@@ -262,11 +300,62 @@ function ModelUpload({ onModelUploaded = () => {} }: ModelUploadProps) {
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type,
+        timestamp: new Date().toISOString(),
       });
 
       let errorMessage = "Failed to parse file";
+      let suggestions: string[] = [];
+
       if (error instanceof Error) {
         errorMessage = error.message;
+
+        // Provide specific suggestions based on error type
+        if (error.message.includes("timeout")) {
+          suggestions.push("The operation timed out. Please try again.");
+          suggestions.push(
+            "If the problem persists, try a smaller file or contact support.",
+          );
+        } else if (
+          error.message.includes("nodes") ||
+          error.message.includes("members")
+        ) {
+          suggestions.push("The file appears to be missing structural data.");
+          suggestions.push(
+            "Please ensure your model file contains node coordinates and member connectivity.",
+          );
+          suggestions.push(
+            "Try exporting the model again from your structural analysis software.",
+          );
+        } else if (error.message.includes("MCP")) {
+          suggestions.push(
+            "There was an issue with model analysis initialization.",
+          );
+          suggestions.push("Please try uploading the file again.");
+          suggestions.push(
+            "If the problem persists, refresh the page and try again.",
+          );
+        } else if (
+          error.message.includes("ML API") ||
+          error.message.includes("AI")
+        ) {
+          suggestions.push(
+            "AI analysis encountered an issue, but the model should still work.",
+          );
+          suggestions.push("The system will use rule-based analysis instead.");
+          suggestions.push(
+            "Check that the ML API server is running at http://178.128.135.194",
+          );
+          suggestions.push(
+            "You can proceed with manual classification if needed.",
+          );
+        } else {
+          suggestions.push(
+            "Please check that your file is a valid STAAD.Pro or SAP2000 model.",
+          );
+          suggestions.push(
+            "Ensure the file is not corrupted and contains complete structural data.",
+          );
+        }
       }
 
       setUploadState({
@@ -274,10 +363,18 @@ function ModelUpload({ onModelUploaded = () => {} }: ModelUploadProps) {
         progress: 0,
         currentStep: "",
         error: errorMessage,
-        warnings: [],
+        warnings: suggestions,
       });
 
       console.log("❌ Upload failed, staying on upload page for user to retry");
+
+      // Clear any partial session data that might cause issues
+      try {
+        sessionStorage.removeItem("currentModel");
+        console.log("🧹 Cleared partial session data");
+      } catch (clearError) {
+        console.warn("Failed to clear session data:", clearError);
+      }
     }
   };
 

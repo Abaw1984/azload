@@ -86,8 +86,23 @@ function ModelAnalyzer({
   }>({ satisfaction: 5, comments: "" });
 
   useEffect(() => {
+    console.log("🔍 ModelAnalyzer useEffect triggered:", {
+      hasMCP: !!mcp,
+      hasModel: !!model,
+      mcpLocked: mcp?.isLocked,
+      modelNodes: model?.nodes?.length || 0,
+      modelMembers: model?.members?.length || 0,
+    });
+
     // If MCP exists, show existing data
     if (mcp) {
+      console.log("📋 Loading existing MCP data:", {
+        buildingType: mcp.buildingType,
+        confidence: mcp.buildingTypeConfidence,
+        memberTags: mcp.memberTags.length,
+        isValid: mcp.validation.isValid,
+      });
+
       setBuildingClassification({
         suggestedType: mcp.buildingType,
         confidence: mcp.buildingTypeConfidence,
@@ -109,9 +124,13 @@ function ModelAnalyzer({
 
       setAnalysisStep("complete");
       setProgress(100);
+      console.log("✅ MCP data loaded successfully");
     } else if (model) {
+      console.log("🚀 Starting AI analysis for new model...");
       // Start with AI Assistant analysis if model is provided
       startAIAnalysis();
+    } else {
+      console.log("⚠️ No model or MCP provided to ModelAnalyzer");
     }
   }, [model, mcp]);
 
@@ -145,10 +164,12 @@ function ModelAnalyzer({
     try {
       // Step 1: Check ML API health
       setProgress(15);
+      console.log("🏥 Checking ML API health at http://178.128.135.194...");
       const mlHealthy = await AIBuildingClassifier.checkMLAPIHealth();
       console.log(
-        `🏥 ML API Health Check: ${mlHealthy ? "Healthy" : "Unavailable"}`,
+        `🏥 ML API Health Check: ${mlHealthy ? "✅ Healthy" : "❌ Unavailable"}`,
       );
+      console.log("🌐 ML API URL:", "http://178.128.135.194");
 
       if (mlHealthy) {
         const modelInfo = await AIBuildingClassifier.getMLModelInfo();

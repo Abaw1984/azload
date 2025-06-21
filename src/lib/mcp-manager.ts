@@ -134,39 +134,26 @@ export class MCPManager {
           geometry: model.geometry,
           units: model.units,
           unitsSystem: model.unitsSystem,
+          mlApiUrl: "http://178.128.135.194",
+          mlApiEnabled: true,
         });
 
-        // Enhanced AI analysis with fallback - DISABLED ML API for now
-        console.log(
-          "🤖 Starting AI analysis - ML API disabled, using rule-based fallback",
-        );
-        console.log(
-          "⚠️ ML API temporarily disabled - using rule-based classification",
-        );
+        // Enhanced AI analysis with ML API integration
+        console.log("🤖 Starting AI analysis with ML API integration...");
+        console.log("🌐 ML API Status: ENABLED at http://178.128.135.194");
 
-        // TEMPORARILY DISABLE ML API to fix blank page issue
-        // The ML API calls were causing the initialization to hang/fail
-        console.log(
-          "⚠️ ML API temporarily disabled - using rule-based classification",
-        );
-
-        // Use rule-based classification directly
-        const classification =
-          AIBuildingClassifier.classifyBuildingRuleBased(model);
-        console.log("🏗️ Rule-based building classification complete:", {
-          type: classification.suggestedType,
-          confidence: classification.confidence,
-          reasoning: classification.reasoning.length,
+        // Try ML API first, fallback to rule-based if needed
+        const aiAnalysis = await this.performAIAnalysis(model);
+        console.log("🏗️ AI analysis complete:", {
+          source: aiAnalysis.source,
+          buildingType: aiAnalysis.classification.suggestedType,
+          confidence: aiAnalysis.classification.confidence,
+          memberTagsCount: Object.keys(aiAnalysis.memberTags).length,
+          mlApiHealthy: aiAnalysis.mlApiHealthy,
         });
 
-        // Use rule-based member tagging
-        const memberTags = AIBuildingClassifier.tagMembersRuleBased(
-          model,
-          classification.suggestedType,
-        );
-        console.log("🏷️ Rule-based member tagging complete:", {
-          memberCount: Object.keys(memberTags).length,
-        });
+        const classification = aiAnalysis.classification;
+        const memberTags = aiAnalysis.memberTags;
 
         // Calculate extended properties
         const extendedProps = this.calculateExtendedProperties(
@@ -303,86 +290,244 @@ export class MCPManager {
 
   // Enhanced AI analysis with ML API integration and manual override support
   private async performAIAnalysis(model: StructuralModel) {
-    console.log(
-      "🤖 Starting AI analysis - ML API disabled, using rule-based fallback",
-    );
-
-    // TEMPORARILY DISABLE ML API to fix blank page issue
-    // The ML API calls were causing the initialization to hang/fail
-    console.log(
-      "⚠️ ML API temporarily disabled - using rule-based classification",
-    );
+    console.log("🤖 Starting AI analysis with robust error handling...");
 
     try {
-      // Use rule-based classification directly
-      const classification =
-        AIBuildingClassifier.classifyBuildingRuleBased(model);
-      console.log("🏗️ Rule-based building classification complete:", {
-        type: classification.suggestedType,
-        confidence: classification.confidence,
-        reasoning: classification.reasoning.length,
-      });
-
-      // Use rule-based member tagging
-      const memberTags = AIBuildingClassifier.tagMembersRuleBased(
-        model,
-        classification.suggestedType,
+      // First check ML API health with timeout
+      console.log(
+        "🏥 Checking ML API health at http://178.128.135.194/health...",
       );
-      console.log("🏷️ Rule-based member tagging complete:", {
-        memberCount: Object.keys(memberTags).length,
-      });
 
-      return {
-        classification: {
-          ...classification,
-          source: "RULE_BASED" as const,
-        },
-        memberTags: memberTags,
-        confidences: {},
-        source: "RULE_BASED" as const,
-        mlApiHealthy: false,
-      };
+      let isMLAPIHealthy = false;
+      try {
+        console.log(
+          "🏥 Performing ML API health check with improved error handling...",
+        );
+        const healthResult = await AIBuildingClassifier.checkMLAPIHealth();
+        isMLAPIHealthy = healthResult && healthResult.status === "healthy";
+        console.log(`🏥 ML API Health Result:`, {
+          healthy: isMLAPIHealthy,
+          status: healthResult?.status,
+          modelsLoaded: healthResult?.models_loaded,
+          version: healthResult?.version,
+        });
+      } catch (healthError) {
+        console.warn("🏥 ML API health check failed:", {
+          error:
+            healthError instanceof Error
+              ? healthError.message
+              : String(healthError),
+          apiUrl: ML_API_BASE_URL,
+        });
+        isMLAPIHealthy = false;
+      }
+
+      console.log(
+        `🏥 ML API Health Status: ${isMLAPIHealthy ? "✅ Healthy" : "❌ Unavailable"}`,
+      );
+
+      if (isMLAPIHealthy) {
+        console.log("🤖 ML API is ready - attempting ML classification...");
+
+        try {
+          console.log(
+            "🤖 Attempting ML API classification with improved error handling...",
+          );
+
+          // Try ML API classification with built-in retry logic
+          const classification =
+            await AIBuildingClassifier.classifyBuilding(model);
+
+          console.log("🏗️ ML API building classification complete:", {
+            type: classification.buildingType,
+            confidence: classification.confidence,
+            reasoning: classification.reasoning?.length || 0,
+          });
+
+          // Try ML API member tagging with built-in retry logic
+          const memberTagsResult = await AIBuildingClassifier.tagMembers(
+            model,
+            classification.buildingType,
+          );
+
+          console.log("🏷️ ML API member tagging complete:", {
+            memberCount: Object.keys(memberTagsResult.memberTags).length,
+            source: memberTagsResult.source,
+          });
+
+          return {
+            classification: {
+              suggestedType: classification.buildingType,
+              confidence: classification.confidence,
+              reasoning: classification.reasoning,
+              source: "ML_API" as const,
+            },
+            memberTags: memberTagsResult.memberTags,
+            confidences: memberTagsResult.confidences,
+            source: "ML_API" as const,
+            mlApiHealthy: true,
+          };
+        } catch (mlError) {
+          console.warn("⚠️ ML API calls failed, falling back to rule-based:", {
+            error: mlError instanceof Error ? mlError.message : String(mlError),
+            apiUrl: ML_API_BASE_URL,
+          });
+          throw new Error(
+            `ML API calls failed: ${mlError instanceof Error ? mlError.message : String(mlError)}`,
+          );
+        }
+      } else {
+        console.log("⚠️ ML API unavailable, using rule-based fallback");
+        throw new Error("ML API unavailable");
+      }
     } catch (aiError) {
-      console.error(
-        "❌ Rule-based AI analysis failed, using minimal fallback:",
+      console.warn(
+        "⚠️ ML API failed, falling back to rule-based analysis:",
         aiError,
       );
-      return {
-        classification: {
-          suggestedType: "TRUSS_SINGLE_GABLE" as BuildingType,
-          confidence: 0.6,
-          reasoning: ["Minimal fallback - AI analysis failed"],
+
+      try {
+        // Use rule-based classification as fallback
+        console.log("🔄 Attempting rule-based classification...");
+        const classification =
+          AIBuildingClassifier.classifyBuildingRuleBased(model);
+        console.log("🏗️ Rule-based building classification complete:", {
+          type: classification.suggestedType,
+          confidence: classification.confidence,
+          reasoning: classification.reasoning.length,
+        });
+
+        // Use rule-based member tagging
+        const memberTags = AIBuildingClassifier.tagMembersRuleBased(
+          model,
+          classification.suggestedType,
+        );
+        console.log("🏷️ Rule-based member tagging complete:", {
+          memberCount: Object.keys(memberTags).length,
+        });
+
+        return {
+          classification: {
+            ...classification,
+            source: "RULE_BASED" as const,
+          },
+          memberTags: memberTags,
+          confidences: {},
           source: "RULE_BASED" as const,
-        },
-        memberTags: this.generateFallbackMemberTags(model),
-        confidences: {},
-        source: "RULE_BASED" as const,
-        mlApiHealthy: false,
-      };
+          mlApiHealthy: false,
+        };
+      } catch (fallbackError) {
+        console.error(
+          "❌ Rule-based AI analysis also failed, using minimal fallback:",
+          fallbackError,
+        );
+
+        // Ensure we always return a valid result
+        console.log("🔧 Using emergency fallback classification...");
+        return {
+          classification: {
+            suggestedType: "TRUSS_SINGLE_GABLE" as BuildingType,
+            confidence: 0.6,
+            reasoning: ["Emergency fallback - all AI analysis failed"],
+            source: "RULE_BASED" as const,
+          },
+          memberTags: this.generateFallbackMemberTags(model),
+          confidences: {},
+          source: "RULE_BASED" as const,
+          mlApiHealthy: false,
+        };
+      }
     }
   }
 
   // Generate fallback member tags when AI fails
   private generateFallbackMemberTags(model: StructuralModel) {
+    console.log(
+      "🔧 Generating fallback member tags for",
+      model.members.length,
+      "members",
+    );
     const tags: Record<string, MemberTag> = {};
-    model.members.forEach((member) => {
-      tags[member.id] = this.determineFallbackTag(member, model);
-    });
+
+    try {
+      model.members.forEach((member) => {
+        try {
+          tags[member.id] = this.determineFallbackTag(member, model);
+        } catch (error) {
+          console.warn(
+            `Failed to tag member ${member.id}, using default:`,
+            error,
+          );
+          tags[member.id] = "MAIN_FRAME_COLUMN";
+        }
+      });
+
+      console.log(
+        "✅ Generated",
+        Object.keys(tags).length,
+        "fallback member tags",
+      );
+    } catch (error) {
+      console.error("❌ Failed to generate fallback member tags:", error);
+      // Ensure we have at least some tags
+      model.members.forEach((member, index) => {
+        tags[member.id] =
+          index % 2 === 0 ? "MAIN_FRAME_COLUMN" : "MAIN_FRAME_RAFTER";
+      });
+    }
+
     return tags;
   }
 
   // Determine fallback tag based on member geometry
   private determineFallbackTag(member: any, model: StructuralModel): MemberTag {
-    const startNode = model.nodes.find((n) => n.id === member.startNodeId);
-    const endNode = model.nodes.find((n) => n.id === member.endNodeId);
+    try {
+      const startNode = model.nodes.find((n) => n.id === member.startNodeId);
+      const endNode = model.nodes.find((n) => n.id === member.endNodeId);
 
-    if (!startNode || !endNode) return "BEAM";
+      if (!startNode || !endNode) {
+        console.warn(
+          `Missing nodes for member ${member.id}, using default tag`,
+        );
+        return "MAIN_FRAME_COLUMN";
+      }
 
-    const isVertical =
-      Math.abs(startNode.z - endNode.z) > Math.abs(startNode.x - endNode.x) &&
-      Math.abs(startNode.z - endNode.z) > Math.abs(startNode.y - endNode.y);
+      // Calculate member orientation
+      const dx = Math.abs(endNode.x - startNode.x);
+      const dy = Math.abs(endNode.y - startNode.y);
+      const dz = Math.abs(endNode.z - startNode.z);
 
-    return isVertical ? "COLUMN" : "BEAM";
+      // Determine if member is primarily vertical
+      const isVertical = dy > dx && dy > dz;
+
+      // Determine if member is primarily horizontal
+      const isHorizontalX = dx > dy && dx > dz;
+      const isHorizontalZ = dz > dy && dz > dx;
+
+      if (isVertical) {
+        return "MAIN_FRAME_COLUMN";
+      } else if (isHorizontalX || isHorizontalZ) {
+        // Check height to determine if it's a rafter or beam
+        const avgHeight = (startNode.y + endNode.y) / 2;
+        const maxY = Math.max(...model.nodes.map((n) => n.y));
+        const minY = Math.min(...model.nodes.map((n) => n.y));
+        const heightRatio = (avgHeight - minY) / (maxY - minY);
+
+        if (heightRatio > 0.7) {
+          return "MAIN_FRAME_RAFTER";
+        } else {
+          return "ROOF_PURLIN";
+        }
+      }
+
+      return "MAIN_FRAME_COLUMN";
+    } catch (error) {
+      console.warn(
+        `Error determining fallback tag for member ${member.id}:`,
+        error,
+      );
+      return "MAIN_FRAME_COLUMN";
+    }
   }
 
   // Enhanced geometry bounds calculation with caching
@@ -1512,20 +1657,205 @@ export class MCPManager {
     }
   }
 
-  // Safe operation wrapper
+  // Safe operation wrapper with enhanced error handling
   private safeOperation<T>(operation: () => T, fallback?: T): T {
     try {
       return operation();
     } catch (error) {
-      console.error("MCP Operation failed:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Operation failed";
+      console.error("MCP Operation failed:", {
+        error: errorMessage,
+        stack: error instanceof Error ? error.stack : "No stack trace",
+        operation: operation.name || "anonymous",
+      });
+
       this.setState({
-        error: error instanceof Error ? error.message : "Operation failed",
+        error: `MCP Error: ${errorMessage}`,
         isLoading: false,
       });
+
       if (fallback !== undefined) {
+        console.log("Using fallback value for failed operation");
         return fallback;
       }
+
       throw error; // Re-throw if no fallback provided
+    }
+  }
+
+  // Handle prompt processing with proper error handling
+  async processPrompt(prompt: string, context?: any): Promise<any> {
+    console.log("🎯 Processing prompt:", prompt.substring(0, 100) + "...");
+
+    try {
+      // Check if MCP is initialized
+      if (!this.state.current) {
+        throw new Error("MCP not initialized. Please upload a model first.");
+      }
+
+      // Check if MCP is locked
+      if (this.state.current.isLocked) {
+        console.warn("⚠️ MCP is locked, prompt processing may be limited");
+      }
+
+      // Process different types of prompts
+      if (prompt.toLowerCase().includes("building type")) {
+        return this.handleBuildingTypePrompt(prompt, context);
+      } else if (
+        prompt.toLowerCase().includes("member") &&
+        prompt.toLowerCase().includes("tag")
+      ) {
+        return this.handleMemberTagPrompt(prompt, context);
+      } else if (prompt.toLowerCase().includes("dimension")) {
+        return this.handleDimensionPrompt(prompt, context);
+      } else {
+        return this.handleGeneralPrompt(prompt, context);
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Prompt processing failed";
+      console.error("❌ Prompt processing failed:", errorMessage);
+
+      return {
+        success: false,
+        error: errorMessage,
+        suggestion:
+          "Please check your input and try again. Make sure a model is uploaded and MCP is initialized.",
+      };
+    }
+  }
+
+  // Handle building type related prompts
+  private async handleBuildingTypePrompt(
+    prompt: string,
+    context?: any,
+  ): Promise<any> {
+    console.log("🏗️ Handling building type prompt");
+
+    try {
+      const currentType = this.state.current?.buildingType;
+      const confidence = this.state.current?.buildingTypeConfidence || 0;
+
+      return {
+        success: true,
+        currentBuildingType: currentType,
+        confidence: confidence,
+        availableTypes: [
+          "TRUSS_SINGLE_GABLE",
+          "TRUSS_DOUBLE_GABLE",
+          "RIGID_FRAME",
+          "WAREHOUSE",
+          "HANGAR",
+        ],
+        suggestion:
+          "You can update the building type using the model analyzer interface.",
+      };
+    } catch (error) {
+      throw new Error(
+        `Building type prompt failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+  }
+
+  // Handle member tagging related prompts
+  private async handleMemberTagPrompt(
+    prompt: string,
+    context?: any,
+  ): Promise<any> {
+    console.log("🏷️ Handling member tag prompt");
+
+    try {
+      const memberTags = this.state.current?.memberTags || [];
+      const tagCounts = memberTags.reduce(
+        (acc, mt) => {
+          acc[mt.tag] = (acc[mt.tag] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
+
+      return {
+        success: true,
+        totalMembers: memberTags.length,
+        tagDistribution: tagCounts,
+        availableTags: [
+          "MAIN_FRAME_COLUMN",
+          "END_FRAME_COLUMN",
+          "MAIN_FRAME_RAFTER",
+          "END_FRAME_RAFTER",
+          "ROOF_PURLIN",
+          "WALL_GIRT",
+          "ROOF_BRACING",
+          "WALL_BRACING",
+        ],
+        suggestion:
+          "You can update member tags in the 3D visualizer by selecting members.",
+      };
+    } catch (error) {
+      throw new Error(
+        `Member tag prompt failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+  }
+
+  // Handle dimension related prompts
+  private async handleDimensionPrompt(
+    prompt: string,
+    context?: any,
+  ): Promise<any> {
+    console.log("📐 Handling dimension prompt");
+
+    try {
+      const dimensions = this.state.current?.dimensions;
+
+      return {
+        success: true,
+        dimensions: {
+          buildingLength: dimensions?.buildingLength,
+          buildingWidth: dimensions?.buildingWidth,
+          totalHeight: dimensions?.totalHeight,
+          eaveHeight: dimensions?.eaveHeight,
+          roofSlope: dimensions?.roofSlope,
+        },
+        units: this.state.current?.units,
+        unitsSystem: this.state.current?.unitsSystem,
+        suggestion:
+          "Dimensions are extracted from the uploaded model. You can view them in the model analyzer.",
+      };
+    } catch (error) {
+      throw new Error(
+        `Dimension prompt failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+  }
+
+  // Handle general prompts
+  private async handleGeneralPrompt(
+    prompt: string,
+    context?: any,
+  ): Promise<any> {
+    console.log("💬 Handling general prompt");
+
+    try {
+      const mcpStatus = {
+        initialized: this.state.isInitialized,
+        locked: this.state.current?.isLocked || false,
+        valid: this.state.current?.validation.isValid || false,
+        errors: this.state.current?.validation.errors || [],
+        warnings: this.state.current?.validation.warnings || [],
+      };
+
+      return {
+        success: true,
+        mcpStatus,
+        suggestion:
+          "I can help with building types, member tags, dimensions, and model analysis. Please be more specific about what you need.",
+      };
+    } catch (error) {
+      throw new Error(
+        `General prompt failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }
 
@@ -1609,6 +1939,7 @@ export function useMCP() {
     setUserFeedback: manager.setUserFeedback.bind(manager),
     getMLAPIStatus: manager.getMLAPIStatus.bind(manager),
     refreshMLAPIStatus: manager.refreshMLAPIStatus.bind(manager),
+    processPrompt: manager.processPrompt.bind(manager),
   };
 }
 

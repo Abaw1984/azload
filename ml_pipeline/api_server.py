@@ -193,7 +193,7 @@ async def health_check():
     """Health check endpoint"""
     return HealthResponse(
         status="healthy",
-        models_loaded=ml_trainer is not None and ml_trainer.building_classifier is not None,
+        models_loaded=ml_trainer is not None and ml_trainer.building_type_ensemble is not None,
         version="1.0.0"
     )
 
@@ -425,7 +425,7 @@ def generate_building_reasoning(features: Dict[str, float], feature_importance: 
     
     return reasoning[:10]  # Limit to top 10 reasons
 
-def get_alternative_building_types(features: Dict[str, float], trainer: StructuralMLTrainer, top_k: int = 3) -> List[Dict[str, Any]]:
+def get_alternative_building_types(features: Dict[str, float], trainer: EnsembleMLTrainer, top_k: int = 3) -> List[Dict[str, Any]]:
     """Get alternative building type predictions"""
     try:
         # Convert to DataFrame
@@ -433,13 +433,14 @@ def get_alternative_building_types(features: Dict[str, float], trainer: Structur
         feature_df = feature_df.fillna(0)
         
         # Scale features
-        features_scaled = trainer.building_scaler.transform(feature_df)
+        features_selected = trainer.global_feature_selector.transform(feature_df)
+        features_scaled = trainer.global_scaler.transform(features_selected)
         
         # Get probabilities for all classes
-        probabilities = trainer.building_classifier.predict_proba(features_scaled)[0]
+        probabilities = trainer.building_type_ensemble.predict_proba(features_scaled)[0]
         
         # Get class names
-        class_names = trainer.building_label_encoder.classes_
+        class_names = trainer.building_type_encoder.classes_
         
         # Sort by probability
         class_probs = list(zip(class_names, probabilities))
@@ -481,7 +482,7 @@ async def get_training_status():
             "status": "trained",
             "training_results": results,
             "metadata": metadata,
-            "models_loaded": model_loaded
+            "models_loaded": ml_trainer is not None and ml_trainer.building_type_ensemble is not None
         }
         
     except Exception as e:
@@ -490,7 +491,7 @@ async def get_training_status():
 @app.get("/feature-importance/{model_type}")
 async def get_feature_importance(model_type: str):
     """Get feature importance for specified model type"""
-    if not model_loaded:
+    if not ml_trainer:
         raise HTTPException(status_code=503, detail="Models not loaded")
     
     try:
@@ -613,8 +614,8 @@ async def get_asce7_parameters(frame_system: str):
         raise HTTPException(status_code=503, detail="Models not loaded")
     
     try:
-        if frame_system in ml_trainer.seismic_parameters:
-            params = ml_trainer.seismic_parameters[frame_system]
+        if frame_system in feature_extractor.seismic_parameters:
+            params = feature_extractor.seismic_parameters[frame_system]
             
             # Determine height limits based on frame system
             height_limits = {}
@@ -641,7 +642,7 @@ async def get_asce7_parameters(frame_system: str):
                 applicability=applicability
             )
         else:
-            available_systems = list(ml_trainer.seismic_parameters.keys())
+            available_systems = list(feature_extractor.seismic_parameters.keys())
             raise HTTPException(
                 status_code=400, 
                 detail=f"Unknown frame system '{frame_system}'. Available: {available_systems}"
@@ -654,7 +655,7 @@ async def get_asce7_parameters(frame_system: str):
 @app.get("/export-model/{model_type}")
 async def export_model(model_type: str):
     """Export trained model for external use"""
-    if not model_loaded:
+    if not ml_trainer:
         raise HTTPException(status_code=503, detail="Models not loaded")
     
     try:
