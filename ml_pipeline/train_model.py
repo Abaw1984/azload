@@ -1,3 +1,37 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import subprocess
+
+# Check if we're in a virtual environment
+def check_and_setup_environment():
+    """Check for virtual environment and install dependencies if needed"""
+    print("Checking Python environment...")
+    
+    # Check if pandas is available
+    try:
+        import pandas as pd
+        print("✓ Dependencies already installed")
+        return True
+    except ImportError:
+        print("Installing required dependencies...")
+        
+        # Install requirements
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+            print("✓ Dependencies installed successfully")
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Failed to install dependencies: {e}")
+            return False
+
+# Setup environment first
+if not check_and_setup_environment():
+    print("Failed to setup environment. Exiting.")
+    sys.exit(1)
+
+# Now import the required modules
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score, StratifiedKFold
@@ -12,6 +46,8 @@ import joblib
 import pickle
 import json
 from pathlib import Path
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, Tuple, Any, List
@@ -423,7 +459,7 @@ class EnsembleMLTrainer:
             results['SeismicParameters'] = {
                 'R': seismic_params.R,
                 'Cd': seismic_params.Cd,
-                'Ω₀': seismic_params.Omega0
+                'Omega0': seismic_params.Omega0
             }
         
         # Height classification
@@ -580,7 +616,7 @@ class EnsembleMLTrainer:
         plt.title(title)
         plt.tight_layout()
         plt.savefig(self.models_dir / f'{model_type}_feature_importance.png', dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.close()  # Close the figure to free memory
 
 def main():
     """Main training pipeline for production-ready ensemble models"""

@@ -1,6 +1,14 @@
-import { useState, useEffect, useRef, Suspense } from "react";
+import React, { useState, useEffect, useRef, Suspense, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Grid, Text, Line } from "@react-three/drei";
+import {
+  OrbitControls,
+  Grid,
+  Text,
+  Line,
+  Html,
+  Instances,
+  Instance,
+} from "@react-three/drei";
 import * as THREE from "three";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,10 +51,13 @@ import {
   Camera,
   View,
   AlertTriangle,
+  Home,
+  Square,
+  Rotate3D,
+  CheckCircle,
 } from "lucide-react";
 import { StructuralModel, Member, Node, MemberTag } from "@/types/model";
 import { useMCP } from "@/lib/mcp-manager";
-import { useNavigate } from "react-router-dom";
 
 // Color scheme for member tags
 const MEMBER_TAG_COLORS = {
@@ -79,7 +90,88 @@ const MEMBER_TYPE_COLORS = {
   DEFAULT: "#9CA3AF", // Gray
 };
 
-// Three.js Node Component
+// Instanced Nodes Component for better performance
+function InstancedNodes({
+  nodes,
+  selectedNode,
+  onNodeClick,
+}: {
+  nodes: Node[];
+  selectedNode: string | null;
+  onNodeClick: (nodeId: string) => void;
+}) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const tempObject = useMemo(() => new THREE.Object3D(), []);
+  const tempColor = useMemo(() => new THREE.Color(), []);
+
+  // Update instance matrices and colors
+  useEffect(() => {
+    if (!meshRef.current) return;
+
+    nodes.forEach((node, index) => {
+      const isSelected = selectedNode === node.id;
+      const isHovered = hoveredIndex === index;
+      const scale = isSelected ? 0.4 : isHovered ? 0.2 : 0.15;
+
+      tempObject.position.set(node.x, node.y, node.z);
+      tempObject.scale.setScalar(scale);
+      tempObject.updateMatrix();
+      meshRef.current!.setMatrixAt(index, tempObject.matrix);
+
+      // Set color
+      if (isSelected) {
+        tempColor.setHex(0xfcd34d);
+      } else if (isHovered) {
+        tempColor.setHex(0x60a5fa);
+      } else {
+        tempColor.setHex(0x3b82f6);
+      }
+      meshRef.current!.setColorAt(index, tempColor);
+    });
+
+    meshRef.current.instanceMatrix.needsUpdate = true;
+    if (meshRef.current.instanceColor) {
+      meshRef.current.instanceColor.needsUpdate = true;
+    }
+  }, [nodes, selectedNode, hoveredIndex, tempObject, tempColor]);
+
+  const handlePointerMove = (event: any) => {
+    event.stopPropagation();
+    setHoveredIndex(event.instanceId ?? null);
+    document.body.style.cursor =
+      event.instanceId !== undefined ? "pointer" : "default";
+  };
+
+  const handleClick = (event: any) => {
+    if (event.instanceId !== undefined) {
+      event.stopPropagation();
+      const node = nodes[event.instanceId];
+      if (node) {
+        onNodeClick(node.id);
+      }
+    }
+  };
+
+  return (
+    <instancedMesh
+      ref={meshRef}
+      args={[undefined, undefined, nodes.length]}
+      onPointerMove={handlePointerMove}
+      onPointerOut={(e) => {
+        e.stopPropagation();
+        setHoveredIndex(null);
+        document.body.style.cursor = "default";
+      }}
+      onClick={handleClick}
+    >
+      <sphereGeometry args={[1, 16, 16]} />
+      <meshStandardMaterial />
+    </instancedMesh>
+  );
+}
+
+// Individual Node Component for selected/hovered states
 function NodeComponent({
   node,
   isSelected,
@@ -103,7 +195,10 @@ function NodeComponent({
     <mesh
       ref={meshRef}
       position={[node.x, node.y, node.z]}
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       onPointerOver={(e) => {
         e.stopPropagation();
         setHovered(true);
@@ -138,7 +233,7 @@ function NodeComponent({
   );
 }
 
-// Three.js Member Component
+// Enhanced Member Component with click-to-tag functionality
 function MemberComponent({
   member,
   startNode,
@@ -146,6 +241,8 @@ function MemberComponent({
   isSelected,
   color,
   onClick,
+  memberTag,
+  onTagChange,
 }: {
   member: Member;
   startNode: Node;
@@ -153,63 +250,68 @@ function MemberComponent({
   isSelected: boolean;
   color: string;
   onClick: () => void;
+  memberTag?: MemberTag;
+  onTagChange?: (memberId: string, tag: MemberTag) => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const [showTagSelector, setShowTagSelector] = useState(false);
   const points = [
     new THREE.Vector3(startNode.x, startNode.y, startNode.z),
     new THREE.Vector3(endNode.x, endNode.y, endNode.z),
   ];
 
   const handlePointerOver = (e: any) => {
-    e.stopPropagation();
     setHovered(true);
     document.body.style.cursor = "pointer";
   };
 
   const handlePointerOut = (e: any) => {
-    e.stopPropagation();
     setHovered(false);
     document.body.style.cursor = "default";
   };
 
+  const tagOptions: { value: MemberTag; label: string }[] = [
+    { value: "MAIN_FRAME_COLUMN", label: "Main Frame Column" },
+    { value: "END_FRAME_COLUMN", label: "End Frame Column" },
+    { value: "MAIN_FRAME_RAFTER", label: "Main Frame Rafter" },
+    { value: "END_FRAME_RAFTER", label: "End Frame Rafter" },
+    { value: "ROOF_PURLIN", label: "Roof Purlin" },
+    { value: "WALL_GIRT", label: "Wall Girt" },
+    { value: "ROOF_BRACING", label: "Roof Bracing" },
+    { value: "WALL_BRACING", label: "Wall Bracing" },
+    { value: "CRANE_BEAM", label: "Crane Beam" },
+    { value: "MEZZANINE_BEAM", label: "Mezzanine Beam" },
+    { value: "CANOPY_BEAM", label: "Canopy Beam" },
+    { value: "FASCIA_BEAM", label: "Fascia Beam" },
+    { value: "PARAPET", label: "Parapet" },
+    { value: "SIGNAGE_POLE", label: "Signage Pole" },
+  ];
+
   return (
-    <group onClick={onClick}>
+    <group>
       <Line
         points={points}
         color={isSelected ? "#FCD34D" : hovered ? "#60A5FA" : color}
         lineWidth={isSelected ? 6 : hovered ? 4 : 2}
         transparent
         opacity={isSelected ? 1 : hovered ? 0.9 : 0.8}
-      />
-      {/* Invisible cylinder for easier clicking */}
-      <mesh
-        position={[
-          (startNode.x + endNode.x) / 2,
-          (startNode.y + endNode.y) / 2,
-          (startNode.z + endNode.z) / 2,
-        ]}
-        rotation={[
-          0,
-          0,
-          Math.atan2(endNode.y - startNode.y, endNode.x - startNode.x),
-        ]}
-        visible={false}
+        onClick={(e) => {
+          if (e.detail === 2) {
+            // Double click
+            e.stopPropagation();
+            if (onTagChange) {
+              setShowTagSelector(true);
+            }
+          } else {
+            // Single click
+            e.stopPropagation();
+            onClick();
+          }
+        }}
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
-      >
-        <cylinderGeometry
-          args={[
-            0.15,
-            0.15,
-            Math.sqrt(
-              Math.pow(endNode.x - startNode.x, 2) +
-                Math.pow(endNode.y - startNode.y, 2) +
-                Math.pow(endNode.z - startNode.z, 2),
-            ),
-          ]}
-        />
-        <meshBasicMaterial transparent opacity={0} />
-      </mesh>
+      />
+
       {(isSelected || hovered) && (
         <Text
           position={[
@@ -223,7 +325,62 @@ function MemberComponent({
           anchorY="middle"
         >
           {member.id}
+          {memberTag &&
+            `\n${tagOptions.find((opt) => opt.value === memberTag)?.label || memberTag}`}
         </Text>
+      )}
+      {/* Tag Selector Popup */}
+      {showTagSelector && onTagChange && (
+        <Html
+          position={[
+            (startNode.x + endNode.x) / 2,
+            (startNode.y + endNode.y) / 2 + 1.5,
+            (startNode.z + endNode.z) / 2,
+          ]}
+          center
+        >
+          <div className="bg-white border rounded-lg shadow-lg p-3 min-w-[200px] z-50">
+            <div className="text-sm font-medium mb-2">Select Member Tag:</div>
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {tagOptions.map((option) => (
+                <button
+                  key={option.value}
+                  className="w-full text-left px-2 py-1 text-xs hover:bg-blue-50 rounded flex items-center space-x-2"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onTagChange(member.id, option.value);
+                    setShowTagSelector(false);
+                  }}
+                >
+                  <div
+                    className="w-3 h-3 rounded"
+                    style={{ backgroundColor: MEMBER_TAG_COLORS[option.value] }}
+                  />
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              className="mt-2 w-full text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                setShowTagSelector(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </Html>
       )}
     </group>
   );
@@ -239,7 +396,10 @@ function StructuralModelScene({
   memberTags,
   showNodes,
   showMembers,
+  showGrid,
+  showAxis,
   onCameraReady,
+  onTagChange,
 }: {
   model: StructuralModel;
   selectedNode: string | null;
@@ -249,7 +409,10 @@ function StructuralModelScene({
   memberTags: Map<string, MemberTag>;
   showNodes: boolean;
   showMembers: boolean;
+  showGrid: boolean;
+  showAxis: boolean;
   onCameraReady: (camera: THREE.Camera) => void;
+  onTagChange: (memberId: string, tag: MemberTag) => void;
 }) {
   const { camera } = useThree();
 
@@ -302,25 +465,35 @@ function StructuralModelScene({
       <directionalLight position={[-10, -10, -5]} intensity={0.4} />
 
       {/* Grid */}
-      <Grid
-        args={[100, 100]}
-        position={[0, -0.1, 0]}
-        cellColor="#E2E8F0"
-        sectionColor="#CBD5E1"
-      />
+      {showGrid && (
+        <Grid
+          args={[100, 100]}
+          position={[0, -0.1, 0]}
+          cellColor="#E2E8F0"
+          sectionColor="#CBD5E1"
+        />
+      )}
 
-      {/* Nodes */}
-      {showNodes &&
-        model &&
-        model.nodes &&
-        model.nodes.map((node) => (
-          <NodeComponent
-            key={node.id}
-            node={node}
-            isSelected={selectedNode === node.id}
-            onClick={() => onNodeClick(node.id)}
-          />
-        ))}
+      {/* Axis Helper */}
+      {showAxis && <AxisHelper />}
+
+      {/* Nodes - Using instanced rendering for better performance */}
+      {showNodes && model && model.nodes && model.nodes.length > 0 && (
+        <InstancedNodes
+          nodes={model.nodes}
+          selectedNode={selectedNode}
+          onNodeClick={onNodeClick}
+        />
+      )}
+
+      {/* Selected Node - Individual rendering for interaction */}
+      {showNodes && selectedNode && model && model.nodes && (
+        <NodeComponent
+          node={model.nodes.find((n) => n.id === selectedNode)!}
+          isSelected={true}
+          onClick={() => onNodeClick(selectedNode)}
+        />
+      )}
 
       {/* Members */}
       {showMembers &&
@@ -346,10 +519,55 @@ function StructuralModelScene({
               isSelected={selectedMember === member.id}
               color={getMemberColor(member)}
               onClick={() => onMemberClick(member.id)}
+              memberTag={memberTags.get(member.id)}
+              onTagChange={onTagChange}
             />
           );
         })}
     </>
+  );
+}
+
+// Axis Helper Component
+function AxisHelper() {
+  return (
+    <group position={[0, 0, 0]}>
+      {/* X-axis - Red */}
+      <Line
+        points={[new THREE.Vector3(0, 0, 0), new THREE.Vector3(5, 0, 0)]}
+        color="#ff0000"
+        lineWidth={3}
+      />
+      <Html position={[5.5, 0, 0]}>
+        <div className="bg-red-500 text-white px-1 py-0.5 rounded text-xs font-bold">
+          X
+        </div>
+      </Html>
+
+      {/* Y-axis - Green */}
+      <Line
+        points={[new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0)]}
+        color="#00ff00"
+        lineWidth={3}
+      />
+      <Html position={[0, 5.5, 0]}>
+        <div className="bg-green-500 text-white px-1 py-0.5 rounded text-xs font-bold">
+          Y
+        </div>
+      </Html>
+
+      {/* Z-axis - Blue */}
+      <Line
+        points={[new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 5)]}
+        color="#0000ff"
+        lineWidth={3}
+      />
+      <Html position={[0, 0, 5.5]}>
+        <div className="bg-blue-500 text-white px-1 py-0.5 rounded text-xs font-bold">
+          Z
+        </div>
+      </Html>
+    </group>
   );
 }
 
@@ -363,8 +581,12 @@ function ThreeJSViewer({
   memberTags,
   showNodes,
   showMembers,
+  showGrid,
+  showAxis,
   onViewChange,
   setCameraRef,
+  controlsRef,
+  onTagChange,
 }: {
   model: StructuralModel;
   selectedNode: string | null;
@@ -374,8 +596,12 @@ function ThreeJSViewer({
   memberTags: Map<string, MemberTag>;
   showNodes: boolean;
   showMembers: boolean;
+  showGrid: boolean;
+  showAxis: boolean;
   onViewChange: (view: string) => void;
   setCameraRef: (camera: THREE.Camera) => void;
+  controlsRef: React.MutableRefObject<any>;
+  onTagChange: (memberId: string, tag: MemberTag) => void;
 }) {
   return (
     <div className="relative w-full h-full bg-gradient-to-br from-gray-50 to-blue-50">
@@ -383,6 +609,11 @@ function ThreeJSViewer({
         camera={{ position: [10, 10, 10], fov: 60 }}
         shadows
         gl={{ antialias: true, alpha: true }}
+        onPointerMissed={() => {
+          // Clear selections when clicking on empty space
+          setSelectedNode(null);
+          setSelectedMember(null);
+        }}
       >
         <Suspense fallback={null}>
           <StructuralModelScene
@@ -394,21 +625,35 @@ function ThreeJSViewer({
             memberTags={memberTags}
             showNodes={showNodes}
             showMembers={showMembers}
+            showGrid={showGrid}
+            showAxis={showAxis}
             onCameraReady={setCameraRef}
+            onTagChange={onTagChange}
           />
           <OrbitControls
+            ref={controlsRef}
             enablePan={true}
             enableZoom={true}
             enableRotate={true}
-            dampingFactor={0.05}
+            dampingFactor={0.1}
             enableDamping={true}
-            zoomSpeed={1.5}
-            panSpeed={1.0}
-            rotateSpeed={0.5}
+            zoomSpeed={2.0}
+            panSpeed={2.0}
+            rotateSpeed={1.0}
             minDistance={1}
-            maxDistance={2000}
+            maxDistance={1000}
             minPolarAngle={0}
             maxPolarAngle={Math.PI}
+            mouseButtons={{
+              LEFT: THREE.MOUSE.ROTATE,
+              MIDDLE: THREE.MOUSE.DOLLY,
+              RIGHT: THREE.MOUSE.PAN,
+            }}
+            touches={{
+              ONE: THREE.TOUCH.ROTATE,
+              TWO: THREE.TOUCH.DOLLY_PAN,
+            }}
+            makeDefault
           />
         </Suspense>
       </Canvas>
@@ -471,9 +716,43 @@ function MemberTagSelector({
   );
 }
 
-export default function ThreeDVisualizer() {
-  const navigate = useNavigate();
-  const mcpState = useMCP();
+// React Error Boundary Component
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center justify-center h-full bg-red-50 border border-red-200 rounded-lg">
+          <div className="text-center p-8">
+            <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-red-900 mb-2">
+              3D Visualizer Error
+            </h3>
+            <p className="text-red-700 mb-4">
+              The 3D visualizer encountered an error and cannot display the
+              model.
+            </p>
+            <p className="text-sm text-red-600">{this.state.error?.message}</p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function ThreeDVisualizerCore() {
   const [model, setModel] = useState<StructuralModel | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
@@ -482,111 +761,211 @@ export default function ThreeDVisualizer() {
   );
   const [showNodes, setShowNodes] = useState(true);
   const [showMembers, setShowMembers] = useState(true);
+  const [showGrid, setShowGrid] = useState(true);
+  const [showAxis, setShowAxis] = useState(true);
   const [cameraRef, setCameraRef] = useState<THREE.Camera | null>(null);
+  const controlsRef = useRef<any>(null);
+  const mcp = useMCP();
 
-  // Load model data from session storage or MCP
+  // Enhanced model loading with comprehensive debugging
   useEffect(() => {
-    console.log("🔍 Loading model data...", { mcpState });
+    const loadModel = () => {
+      console.log("🔄 BULLETPROOF 3D VISUALIZER: Loading model...", {
+        timestamp: new Date().toISOString(),
+        mcpCurrent: !!mcp.current,
+        mcpInitialized: mcp.isInitialized,
+        mcpError: mcp.error,
+        sessionStorageKeys: Object.keys(sessionStorage),
+      });
 
-    // Try session storage first (most reliable for visualization)
-    const sessionModel = sessionStorage.getItem("currentModel");
-    if (sessionModel) {
-      try {
-        const parsedModel = JSON.parse(sessionModel);
-        console.log("📦 Found session model:", parsedModel);
-        if (
-          parsedModel.nodes &&
-          parsedModel.members &&
-          parsedModel.nodes.length > 0 &&
-          parsedModel.members.length > 0
-        ) {
-          setModel(parsedModel);
+      // STEP 1: Try to get model from session storage
+      console.log("📦 STEP 1: Checking session storage...");
+      const sessionData = sessionStorage.getItem("parsedModel");
 
-          // Load member tags from MCP if available
-          if (mcpState.current) {
-            const tagsMap = new Map<string, MemberTag>();
-            mcpState.current.memberTags.forEach((mt) => {
-              tagsMap.set(mt.memberId, mt.tag);
-            });
-            setMemberTags(tagsMap);
+      if (sessionData) {
+        try {
+          console.log("🔍 Found model data in session storage, parsing...");
+          const parsedModel = JSON.parse(sessionData);
+
+          // Validate parsed model structure
+          if (!parsedModel || !parsedModel.nodes || !parsedModel.members) {
+            throw new Error("Invalid model structure in session storage");
+          }
+
+          if (parsedModel.nodes.length === 0) {
+            throw new Error("Model has no nodes");
+          }
+
+          if (parsedModel.members.length === 0) {
+            throw new Error("Model has no members");
           }
 
           console.log(
-            "✅ Model loaded from session storage with",
-            parsedModel.nodes.length,
-            "nodes and",
-            parsedModel.members.length,
-            "members",
-          );
-          return;
-        }
-      } catch (error) {
-        console.error("Failed to parse session model:", error);
-      }
-    }
-
-    // Fallback to MCP data if session storage fails
-    if (mcpState.current && mcpState.isInitialized) {
-      const mcp = mcpState.current;
-      console.log("🎯 Using MCP data as fallback:", mcp);
-
-      // Check if MCP has dimensions with nodes and members
-      if (
-        mcp.dimensions &&
-        (mcp.dimensions as any).nodes &&
-        (mcp.dimensions as any).members
-      ) {
-        const dimensions = mcp.dimensions as any;
-
-        if (dimensions.nodes.length > 0 && dimensions.members.length > 0) {
-          const visualizationModel: StructuralModel = {
-            id: mcp.modelId,
-            name: mcp.modelName,
-            type: "STAAD",
-            units: mcp.units,
-            unitsSystem: mcp.unitsSystem,
-            nodes: dimensions.nodes,
-            members: dimensions.members,
-            plates: [],
-            sections: [],
-            materials: [],
-            loadCases: [],
-            supports: [],
-            releases: [],
-            buildingType: mcp.buildingType,
-            geometry: {
-              eaveHeight: mcp.dimensions.eaveHeight,
-              meanRoofHeight: mcp.dimensions.roofMeanHeight,
-              totalHeight: mcp.dimensions.totalHeight,
-              buildingLength: mcp.dimensions.buildingLength,
-              buildingWidth: mcp.dimensions.buildingWidth,
-              roofSlope: mcp.dimensions.roofSlope,
-              frameCount: mcp.dimensions.frameCount,
-              endFrameCount: mcp.dimensions.endFrameCount,
-              baySpacings: mcp.baySpacingX || [48],
+            "✅ STEP 1 COMPLETE: Model loaded from session storage:",
+            {
+              name: parsedModel.name,
+              nodes: parsedModel.nodes.length,
+              members: parsedModel.members.length,
+              units: parsedModel.units,
+              unitsSystem: parsedModel.unitsSystem,
+              hasGeometry: !!parsedModel.geometry,
+              aiDetection: parsedModel.aiDetection ? "Present" : "Missing",
             },
-          };
+          );
 
-          // Load member tags
-          const tagsMap = new Map<string, MemberTag>();
-          mcp.memberTags.forEach((mt) => {
-            tagsMap.set(mt.memberId, mt.tag);
-          });
-          setMemberTags(tagsMap);
+          setModel(parsedModel);
 
-          console.log("✅ Model loaded from MCP:", visualizationModel);
-          setModel(visualizationModel);
-        } else {
-          console.warn("⚠️ MCP dimensions has empty nodes/members arrays");
+          // STEP 2: Load member tags from MCP if available
+          console.log("🏷️ STEP 2: Loading member tags from MCP...");
+          if (mcp.current?.memberTags) {
+            const tagMap = new Map<string, MemberTag>();
+            mcp.current.memberTags.forEach((mt) => {
+              tagMap.set(mt.memberId, mt.tag);
+            });
+            setMemberTags(tagMap);
+            console.log("✅ STEP 2 COMPLETE: Member tags loaded from MCP:", {
+              tagCount: tagMap.size,
+              sampleTags: Array.from(tagMap.entries()).slice(0, 3),
+            });
+          } else {
+            console.log("⚠️ No member tags available in MCP");
+          }
+
+          // STEP 3: Initialize MCP if model exists but no MCP
+          if (!mcp.current && parsedModel) {
+            console.log("🤖 STEP 3: Initializing MCP from loaded model...");
+            try {
+              mcp.initializeFromModel(parsedModel);
+              console.log("✅ STEP 3 COMPLETE: MCP initialized from model");
+            } catch (mcpError) {
+              console.warn(
+                "⚠️ MCP initialization failed (non-critical):",
+                mcpError,
+              );
+            }
+          }
+
+          console.log("🎉 3D VISUALIZER: Model loading complete!");
+          return;
+        } catch (error) {
+          console.error(
+            "❌ STEP 1 FAILED: Failed to parse model from session storage:",
+            {
+              error: error instanceof Error ? error.message : String(error),
+              sessionDataLength: sessionData.length,
+              sessionDataPreview: sessionData.substring(0, 200),
+            },
+          );
         }
       } else {
-        console.warn("⚠️ MCP dimensions missing nodes/members data");
+        console.log("⚠️ STEP 1: No model found in session storage");
       }
-    }
-  }, [mcpState]);
 
-  const handleBackToHome = () => {
-    navigate("/");
+      // STEP 4: Check alternative storage locations
+      console.log("🔍 STEP 4: Checking alternative storage locations...");
+      const altData =
+        sessionStorage.getItem("currentModel") ||
+        sessionStorage.getItem("parsedGeometry");
+      if (altData) {
+        try {
+          const altModel = JSON.parse(altData);
+          if (altModel.nodes && altModel.members) {
+            console.log("✅ Found model in alternative storage");
+            setModel(altModel);
+            return;
+          }
+        } catch (error) {
+          console.warn("⚠️ Alternative storage parsing failed:", error);
+        }
+      }
+
+      console.log(
+        "❌ 3D VISUALIZER: No valid model found in any storage location",
+      );
+    };
+
+    // Initial load with delay to ensure MCP is ready
+    console.log("🚀 3D VISUALIZER: Starting initial model load...");
+    setTimeout(loadModel, 100);
+
+    // Enhanced event listeners
+    const handleGeometryParsed = (event: any) => {
+      console.log("📡 3D VISUALIZER: Received geometryParsed event:", {
+        hasDetail: !!event.detail,
+        detailKeys: event.detail ? Object.keys(event.detail) : [],
+        timestamp: event.detail?.timestamp,
+      });
+
+      // Small delay to ensure storage is updated
+      setTimeout(loadModel, 200);
+    };
+
+    const handleModelReady = (event: any) => {
+      console.log("📡 3D VISUALIZER: Received modelReady event:", event.detail);
+      setTimeout(loadModel, 100);
+    };
+
+    // Listen for multiple event types
+    window.addEventListener("geometryParsed", handleGeometryParsed);
+    window.addEventListener("modelReady", handleModelReady);
+
+    return () => {
+      window.removeEventListener("geometryParsed", handleGeometryParsed);
+      window.removeEventListener("modelReady", handleModelReady);
+    };
+  }, [mcp.current, mcp.isInitialized, mcp.initializeFromModel]);
+
+  // Handler functions
+  const handleZoomIn = () => {
+    if (controlsRef.current && cameraRef) {
+      const distance = cameraRef.position.distanceTo(
+        controlsRef.current.target,
+      );
+      const newDistance = Math.max(distance * 0.8, 0.5);
+      const direction = new THREE.Vector3()
+        .subVectors(cameraRef.position, controlsRef.current.target)
+        .normalize()
+        .multiplyScalar(newDistance);
+      cameraRef.position.copy(controlsRef.current.target).add(direction);
+      controlsRef.current.update();
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (controlsRef.current && cameraRef) {
+      const distance = cameraRef.position.distanceTo(
+        controlsRef.current.target,
+      );
+      const newDistance = Math.min(distance * 1.25, 1000);
+      const direction = new THREE.Vector3()
+        .subVectors(cameraRef.position, controlsRef.current.target)
+        .normalize()
+        .multiplyScalar(newDistance);
+      cameraRef.position.copy(controlsRef.current.target).add(direction);
+      controlsRef.current.update();
+    }
+  };
+
+  const handleFitToView = () => {
+    if (!cameraRef || !model || !model.nodes || !controlsRef.current) return;
+
+    const box = new THREE.Box3();
+    model.nodes.forEach((node) => {
+      box.expandByPoint(new THREE.Vector3(node.x, node.y, node.z));
+    });
+
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const distance = maxDim * 1.5;
+
+    cameraRef.position.set(
+      center.x + distance * 0.7,
+      center.y + distance * 0.7,
+      center.z + distance * 0.7,
+    );
+    controlsRef.current.target.copy(center);
+    controlsRef.current.update();
   };
 
   const handleNodeClick = (nodeId: string) => {
@@ -600,7 +979,7 @@ export default function ThreeDVisualizer() {
   };
 
   const handleViewChange = (view: string) => {
-    if (!cameraRef || !model || !model.nodes) return;
+    if (!cameraRef || !model || !model.nodes || !controlsRef.current) return;
 
     // Calculate model bounds for proper positioning
     const box = new THREE.Box3();
@@ -611,21 +990,27 @@ export default function ThreeDVisualizer() {
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z);
-    const distance = maxDim * 2;
+    const distance = maxDim * 1.8;
 
     // Set camera position based on view
     switch (view) {
       case "front":
         cameraRef.position.set(center.x, center.y, center.z - distance);
         break;
-      case "back":
-        cameraRef.position.set(center.x, center.y, center.z + distance);
-        break;
-      case "left":
-        cameraRef.position.set(center.x - distance, center.y, center.z);
+      case "top":
+        cameraRef.position.set(center.x, center.y + distance, center.z);
         break;
       case "right":
         cameraRef.position.set(center.x + distance, center.y, center.z);
+        break;
+      case "back":
+        cameraRef.position.set(center.x, center.y, center.z + distance);
+        break;
+      case "bottom":
+        cameraRef.position.set(center.x, center.y - distance, center.z);
+        break;
+      case "left":
+        cameraRef.position.set(center.x - distance, center.y, center.z);
         break;
       case "iso":
         cameraRef.position.set(
@@ -636,43 +1021,24 @@ export default function ThreeDVisualizer() {
         break;
     }
 
-    cameraRef.lookAt(center);
+    controlsRef.current.target.copy(center);
+    controlsRef.current.update();
   };
 
   const handleTagChange = (memberId: string, tag: MemberTag) => {
-    if (!mcpState.current) {
-      alert("MCP not initialized - cannot update member tags");
-      return;
-    }
+    // Update local state immediately
+    const newTags = new Map(memberTags);
+    newTags.set(memberId, tag);
+    setMemberTags(newTags);
 
-    if (mcpState.current.isLocked) {
-      alert("Cannot modify member tags - MCP is locked for calculations");
-      return;
-    }
-
-    try {
-      // Update MCP
-      mcpState.updateMemberTag(memberId, tag, true);
-
-      // Update local state
-      const newTags = new Map(memberTags);
-      newTags.set(memberId, tag);
-      setMemberTags(newTags);
-
-      // Update model display
-      if (model) {
-        const updatedModel = {
-          ...model,
-          members: model.members.map((member) =>
-            member.id === memberId ? { ...member, tag } : member,
-          ),
-        };
-        setModel(updatedModel);
+    // Update MCP if available
+    if (mcp.current && !mcp.current.isLocked) {
+      try {
+        mcp.updateMemberTag(memberId, tag, true);
+        console.log(`✅ Updated member ${memberId} tag to ${tag} in MCP`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to update MCP member tag:`, error);
       }
-    } catch (error) {
-      alert(
-        `Failed to update member tag: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
     }
   };
 
@@ -690,384 +1056,265 @@ export default function ThreeDVisualizer() {
     }
   };
 
-  // Loading state
-  if (mcpState.isLoading) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 animate-spin">
-            <Building className="w-16 h-16 text-blue-500" />
-          </div>
-          <p className="text-lg font-medium text-gray-900 mb-2">
-            Loading Model Data...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Error state
-  if (mcpState.error) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <AlertTriangle className="w-16 h-16 mx-auto mb-4 text-red-500" />
-          <p className="text-lg font-medium text-gray-900 mb-2">
-            Model Loading Error
-          </p>
-          <p className="text-gray-600 mb-4">{mcpState.error}</p>
-          <Button onClick={handleBackToHome}>
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Upload
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // No model state - show helpful message
   if (!model) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <Building className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-          <p className="text-lg font-medium text-gray-900 mb-2">
-            No Model Data Available
-          </p>
+      <div className="flex items-center justify-center h-full bg-gray-50 border border-gray-200 rounded-lg">
+        <div className="text-center p-8">
+          <Building className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            No Model Loaded
+          </h3>
           <p className="text-gray-600 mb-4">
-            The 3D visualizer needs model data to display. This could happen if:
+            Upload a structural model to view it in 3D
           </p>
-          <ul className="text-sm text-gray-500 mb-6 text-left space-y-1">
-            <li>• Model upload is still in progress</li>
-            <li>• Model parsing failed</li>
-            <li>• Session data was cleared</li>
-            <li>• MCP initialization is incomplete</li>
-          </ul>
-          <div className="space-y-2">
-            <Button onClick={handleBackToHome}>
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Home
-            </Button>
-            <Button variant="outline" onClick={() => window.location.reload()}>
-              Refresh Page
-            </Button>
-          </div>
+          <p className="text-sm text-gray-500">
+            Supported formats: STAAD.Pro (.std), SAP2000 (.s2k, .sdb)
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-full mx-auto px-3">
-          <div className="flex justify-between items-center h-14">
-            <div className="flex items-center space-x-4">
-              <Button variant="ghost" onClick={handleBackToHome}>
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Home
+    <div className="relative w-full h-full bg-white rounded-lg overflow-hidden border shadow-sm">
+      {/* Compact CAD-style Control Panel */}
+      <div className="absolute top-4 left-4 z-10 flex flex-col space-y-1">
+        {/* Compact View Controls */}
+        <Card className="p-1.5 bg-white/90 backdrop-blur-sm">
+          <div className="flex flex-col space-y-1">
+            <div className="text-xs font-medium text-gray-600">Views</div>
+            <div className="grid grid-cols-3 gap-0.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-1 text-xs"
+                onClick={() => handleViewChange("front")}
+                title="Front View"
+              >
+                F
               </Button>
-              <div className="h-6 w-px bg-gray-300" />
-              <div>
-                <h1 className="text-lg font-semibold text-gray-900">
-                  3D Visualizer
-                </h1>
-                <p className="text-sm text-gray-500">{model.name}</p>
-              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-1 text-xs"
+                onClick={() => handleViewChange("top")}
+                title="Top View"
+              >
+                T
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-1 text-xs"
+                onClick={() => handleViewChange("right")}
+                title="Right View"
+              >
+                R
+              </Button>
             </div>
-            <div className="flex items-center space-x-2">
-              <Badge variant="outline">{model.type || "Unknown"} Model</Badge>
-              <Button variant="outline" size="sm" onClick={handleExportModel}>
-                <Download className="w-4 h-4 mr-2" />
-                Export
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 text-xs"
+              onClick={() => handleViewChange("iso")}
+              title="Isometric View"
+            >
+              <View className="w-3 h-3 mr-1" />
+              ISO
+            </Button>
+          </div>
+        </Card>
+
+        {/* Compact Zoom Controls */}
+        <Card className="p-1.5 bg-white/90 backdrop-blur-sm">
+          <div className="flex flex-col space-y-0.5">
+            <div className="text-xs font-medium text-gray-600">Zoom</div>
+            <div className="flex space-x-0.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={handleZoomIn}
+                title="Zoom In"
+              >
+                <ZoomIn className="w-3 h-3" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={handleZoomOut}
+                title="Zoom Out"
+              >
+                <ZoomOut className="w-3 h-3" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={handleFitToView}
+                title="Fit to View"
+              >
+                <Maximize className="w-3 h-3" />
               </Button>
             </div>
           </div>
-        </div>
-      </header>
+        </Card>
 
-      {/* Main Content */}
-      <div className="flex h-[calc(100vh-56px)]">
-        {/* 3D Viewer */}
-        <div className="flex-1">
-          <Card className="h-full rounded-none border-0">
-            <CardHeader className="pb-2">
-              <div className="flex justify-between items-center">
-                <div>
-                  <CardTitle className="text-lg">3D Model Viewer</CardTitle>
-                  <CardDescription>
-                    Interactive structural model visualization
-                  </CardDescription>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Button
-                    variant={showNodes ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setShowNodes(!showNodes)}
-                  >
-                    <Eye className="w-4 h-4 mr-1" />
-                    Nodes
-                  </Button>
-                  <Button
-                    variant={showMembers ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setShowMembers(!showMembers)}
-                  >
-                    <Building className="w-4 h-4 mr-1" />
-                    Members
-                  </Button>
-                </div>
+        {/* Compact Display Controls */}
+        <Card className="p-1.5 bg-white/90 backdrop-blur-sm">
+          <div className="flex flex-col space-y-0.5">
+            <div className="text-xs font-medium text-gray-600">Display</div>
+            <div className="grid grid-cols-2 gap-0.5">
+              <Button
+                variant={showNodes ? "default" : "outline"}
+                size="sm"
+                className="h-6 text-xs px-1"
+                onClick={() => setShowNodes(!showNodes)}
+                title="Toggle Nodes"
+              >
+                <Eye className="w-3 h-3" />
+              </Button>
+              <Button
+                variant={showMembers ? "default" : "outline"}
+                size="sm"
+                className="h-6 text-xs px-1"
+                onClick={() => setShowMembers(!showMembers)}
+                title="Toggle Members"
+              >
+                <Building className="w-3 h-3" />
+              </Button>
+              <Button
+                variant={showGrid ? "default" : "outline"}
+                size="sm"
+                className="h-6 text-xs px-1"
+                onClick={() => setShowGrid(!showGrid)}
+                title="Toggle Grid"
+              >
+                <Grid3X3 className="w-3 h-3" />
+              </Button>
+              <Button
+                variant={showAxis ? "default" : "outline"}
+                size="sm"
+                className="h-6 text-xs px-1"
+                onClick={() => setShowAxis(!showAxis)}
+                title="Toggle Axis"
+              >
+                <Rotate3D className="w-3 h-3" />
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Compact Model Info Panel */}
+      <div className="absolute top-4 right-4 z-10">
+        <Card className="p-2 bg-white/90 backdrop-blur-sm">
+          <div className="space-y-1">
+            <div className="text-sm font-medium">{model?.name || "Model"}</div>
+            <div className="text-xs text-gray-600 space-y-0.5">
+              <div>
+                Nodes: {model?.nodes?.length || 0} | Members:{" "}
+                {model?.members?.length || 0}
               </div>
-            </CardHeader>
-            <CardContent className="p-0 h-[calc(100%-80px)]">
-              <div className="w-full h-full bg-gray-100 overflow-hidden">
-                <ThreeJSViewer
-                  model={model}
-                  selectedNode={selectedNode}
-                  selectedMember={selectedMember}
-                  onNodeClick={handleNodeClick}
-                  onMemberClick={handleMemberClick}
-                  memberTags={memberTags}
-                  showNodes={showNodes}
-                  showMembers={showMembers}
-                  onViewChange={handleViewChange}
-                  setCameraRef={setCameraRef}
-                />
+              <div>Units: {model?.unitsSystem || "Unknown"}</div>
+              <div className="text-blue-600 font-medium">
+                💡 Double-click member to tag
               </div>
-            </CardContent>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Compact Selection Info Panel */}
+      {(selectedNode || selectedMember) && (
+        <div className="absolute bottom-4 left-4 z-10">
+          <Card className="p-2 min-w-[200px] bg-white/95 backdrop-blur-sm">
+            {selectedNode && (
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-blue-600">
+                  Node {selectedNode}
+                </div>
+                {(() => {
+                  const node = model?.nodes?.find((n) => n.id === selectedNode);
+                  return node ? (
+                    <div className="text-xs">
+                      <div className="grid grid-cols-3 gap-1">
+                        <div>X: {node.x.toFixed(1)}</div>
+                        <div>Y: {node.y.toFixed(1)}</div>
+                        <div>Z: {node.z.toFixed(1)}</div>
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+            )}
+            {selectedMember && (
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-green-600">
+                  Member {selectedMember}
+                </div>
+                {(() => {
+                  const member = model?.members?.find(
+                    (m) => m.id === selectedMember,
+                  );
+                  return member ? (
+                    <div className="text-xs space-y-1">
+                      <div>Type: {member.type}</div>
+                      <div className="text-xs">
+                        {member.startNodeId} → {member.endNodeId}
+                      </div>
+                      <MemberTagSelector
+                        memberId={selectedMember}
+                        currentTag={memberTags.get(selectedMember)}
+                        onTagChange={handleTagChange}
+                      />
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+            )}
           </Card>
         </div>
+      )}
 
-        {/* Side Panel */}
-        <div className="w-80 bg-white border-l">
-          <Tabs defaultValue="info" className="h-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="info">Info</TabsTrigger>
-              <TabsTrigger value="selection">Selection</TabsTrigger>
-              <TabsTrigger value="controls">Controls</TabsTrigger>
-            </TabsList>
+      {/* Compact Navigation Help */}
+      <div className="absolute bottom-4 right-4 z-10">
+        <Card className="p-2 bg-white/90 backdrop-blur-sm">
+          <div className="text-xs text-gray-600 space-y-0.5">
+            <div>🖱️ L:Rotate | R:Pan | Wheel:Zoom</div>
+            <div>📱 Pinch/Drag | 2x-Click:Tag</div>
+          </div>
+        </Card>
+      </div>
 
-            <TabsContent value="info" className="p-4 space-y-4">
-              <div>
-                <h3 className="font-medium mb-2">Model Information</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Name:</span>
-                    <span className="font-medium">{model.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Type:</span>
-                    <span className="font-medium">{model.type}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Nodes:</span>
-                    <span className="font-medium">{model.nodes.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Members:</span>
-                    <span className="font-medium">{model.members.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Units:</span>
-                    <span className="font-medium">
-                      {model.units.length}, {model.units.force}
-                    </span>
-                  </div>
-                  {mcpState.current && (
-                    <>
-                      <div className="flex justify-between">
-                        <span>Building Type:</span>
-                        <span className="font-medium">
-                          {mcpState.current.buildingType}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Confidence:</span>
-                        <span className="font-medium">
-                          {(
-                            mcpState.current.buildingTypeConfidence * 100
-                          ).toFixed(1)}
-                          %
-                        </span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="selection" className="p-4 space-y-4">
-              {selectedNode && (
-                <div className="space-y-2">
-                  <h3 className="font-medium">Selected Node</h3>
-                  <div className="bg-blue-50 p-3 rounded border">
-                    <div className="font-medium mb-2">Node {selectedNode}</div>
-                    {(() => {
-                      const node = model.nodes.find(
-                        (n) => n.id === selectedNode,
-                      );
-                      return node ? (
-                        <div className="text-sm space-y-1">
-                          <div className="flex justify-between">
-                            <span>X:</span>
-                            <span className="font-mono">
-                              {node.x.toFixed(3)} {model.units.length}
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Y:</span>
-                            <span className="font-mono">
-                              {node.y.toFixed(3)} {model.units.length}
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Z:</span>
-                            <span className="font-mono">
-                              {node.z.toFixed(3)} {model.units.length}
-                            </span>
-                          </div>
-                        </div>
-                      ) : null;
-                    })()}
-                  </div>
-                </div>
-              )}
-
-              {selectedMember && (
-                <div className="space-y-2">
-                  <h3 className="font-medium">Selected Member</h3>
-                  <div className="bg-green-50 p-3 rounded border">
-                    <div className="font-medium mb-2">
-                      Member {selectedMember}
-                    </div>
-                    {(() => {
-                      const member = model.members.find(
-                        (m) => m.id === selectedMember,
-                      );
-                      return member ? (
-                        <div className="space-y-2">
-                          <div className="text-sm space-y-1">
-                            <div className="flex justify-between">
-                              <span>Type:</span>
-                              <span className="font-medium">{member.type}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Start Node:</span>
-                              <span className="font-mono">
-                                {member.startNodeId}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>End Node:</span>
-                              <span className="font-mono">
-                                {member.endNodeId}
-                              </span>
-                            </div>
-                          </div>
-                          <MemberTagSelector
-                            memberId={selectedMember}
-                            currentTag={memberTags.get(selectedMember)}
-                            onTagChange={handleTagChange}
-                          />
-                        </div>
-                      ) : null;
-                    })()}
-                  </div>
-                </div>
-              )}
-
-              {!selectedNode && !selectedMember && (
-                <div className="text-center text-gray-500 py-8">
-                  <MousePointer className="w-8 h-8 mx-auto mb-2" />
-                  <p>Click on nodes or members to view details</p>
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="controls" className="p-4 space-y-4">
-              <div>
-                <h3 className="font-medium mb-2">View Controls</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleViewChange("front")}
-                  >
-                    Front
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleViewChange("back")}
-                  >
-                    Back
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleViewChange("left")}
-                  >
-                    Left
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleViewChange("right")}
-                  >
-                    Right
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="col-span-2"
-                    onClick={() => handleViewChange("iso")}
-                  >
-                    <View className="w-4 h-4 mr-2" />
-                    Isometric
-                  </Button>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="font-medium mb-2">Display Options</h3>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Show Nodes</span>
-                    <Button
-                      variant={showNodes ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setShowNodes(!showNodes)}
-                    >
-                      {showNodes ? "On" : "Off"}
-                    </Button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Show Members</span>
-                    <Button
-                      variant={showMembers ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setShowMembers(!showMembers)}
-                    >
-                      {showMembers ? "On" : "Off"}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="font-medium mb-2">Interaction</h3>
-                <div className="text-sm text-gray-600 space-y-1">
-                  <div>• Left drag: Rotate view</div>
-                  <div>• Right drag: Pan camera</div>
-                  <div>• Scroll: Zoom in/out</div>
-                  <div>• Click: Select elements</div>
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </div>
+      {/* 3D Viewer */}
+      <div className="w-full h-full">
+        <ThreeJSViewer
+          model={model}
+          selectedNode={selectedNode}
+          selectedMember={selectedMember}
+          onNodeClick={handleNodeClick}
+          onMemberClick={handleMemberClick}
+          memberTags={memberTags}
+          showNodes={showNodes}
+          showMembers={showMembers}
+          showGrid={showGrid}
+          showAxis={showAxis}
+          onViewChange={handleViewChange}
+          setCameraRef={setCameraRef}
+          controlsRef={controlsRef}
+          onTagChange={handleTagChange}
+        />
       </div>
     </div>
+  );
+}
+
+export default function ThreeDVisualizer() {
+  return (
+    <ErrorBoundary>
+      <ThreeDVisualizerCore />
+    </ErrorBoundary>
   );
 }

@@ -107,6 +107,18 @@ export class UniversalParser {
       this.addDefaults(model);
       this.calculateGeometry(model);
 
+      // 🔍 2️⃣ CONFIRM PARSED DATA STORAGE - Log parsed data immediately
+      console.log("🔍 PARSED MODEL DATA (immediately after parsing):", {
+        name: model.name,
+        nodes: model.nodes.length,
+        members: model.members.length,
+        units: model.units,
+        unitsSystem: model.unitsSystem,
+        geometry: model.geometry,
+        sampleNodes: model.nodes.slice(0, 3),
+        sampleMembers: model.members.slice(0, 3),
+      });
+
       // Final validation
       if (model.nodes.length === 0) {
         throw new Error("No nodes found in file. Please check file format.");
@@ -1273,37 +1285,217 @@ export class UniversalParser {
  */
 export class ModelParserFactory {
   static async parseFile(file: File): Promise<StructuralModel> {
-    const content = await this.readFileContent(file);
-    console.log(
-      `🎯 Parsing ${file.name} with Universal Parser - PRESERVING ORIGINAL UNITS`,
-    );
-
-    const parser = new UniversalParser(content, file.name);
-    const model = parser.parse();
-
-    console.log(`🎯 UNITS PRESERVATION CHECK:`, {
+    console.log(`🚀 BULLETPROOF PARSER: Starting file parsing...`, {
       fileName: file.name,
-      detectedUnits: model.units,
-      unitsSystem: model.unitsSystem,
-      noConversionsApplied: true,
+      fileSize: file.size,
+      fileType: file.type,
+      timestamp: new Date().toISOString(),
     });
 
-    // Final validation
-    if (model.nodes.length === 0) {
-      throw new Error("No nodes found in file. Please check file format.");
-    }
+    try {
+      // STEP 1: Read file content with validation
+      console.log("📖 STEP 1: Reading file content...");
+      const content = await this.readFileContent(file);
 
-    if (model.members.length === 0) {
-      throw new Error("No members found in file. Please check file format.");
-    }
+      if (!content || content.trim().length === 0) {
+        throw new Error("File is empty or could not be read");
+      }
 
-    console.log(
-      `✅ Successfully parsed: ${model.nodes.length} nodes, ${model.members.length} members in ${model.unitsSystem} system (${model.units.length}/${model.units.force})`,
-    );
-    console.log(
-      `🎯 CRITICAL: Original units preserved - NO conversions applied`,
-    );
-    return model;
+      console.log("✅ STEP 1 COMPLETE: File content read:", {
+        contentLength: content.length,
+        firstLine: content.split("\n")[0]?.substring(0, 100),
+        lineCount: content.split("\n").length,
+      });
+
+      // STEP 2: Initialize parser
+      console.log("🔧 STEP 2: Initializing Universal Parser...");
+      const parser = new UniversalParser(content, file.name);
+      console.log("✅ STEP 2 COMPLETE: Parser initialized");
+
+      // STEP 3: Parse the model
+      console.log("⚙️ STEP 3: Parsing structural model...");
+      const model = parser.parse();
+
+      console.log("✅ STEP 3 COMPLETE: Model parsed successfully:", {
+        name: model.name,
+        type: model.type,
+        nodes: model.nodes?.length || 0,
+        members: model.members?.length || 0,
+        units: model.units,
+        unitsSystem: model.unitsSystem,
+        hasGeometry: !!model.geometry,
+      });
+
+      // STEP 4: Validate parsed model
+      console.log("🔍 STEP 4: Validating parsed model...");
+
+      if (!model) {
+        throw new Error("Parser returned null or undefined model");
+      }
+
+      if (!model.nodes || !Array.isArray(model.nodes)) {
+        throw new Error("Model has invalid or missing nodes array");
+      }
+
+      if (!model.members || !Array.isArray(model.members)) {
+        throw new Error("Model has invalid or missing members array");
+      }
+
+      if (model.nodes.length === 0) {
+        throw new Error("No nodes found in file. Please check file format.");
+      }
+
+      if (model.members.length === 0) {
+        throw new Error("No members found in file. Please check file format.");
+      }
+
+      // Validate node structure
+      const invalidNodes = model.nodes.filter(
+        (node) =>
+          !node.id ||
+          typeof node.x !== "number" ||
+          typeof node.y !== "number" ||
+          typeof node.z !== "number",
+      );
+
+      if (invalidNodes.length > 0) {
+        throw new Error(
+          `Found ${invalidNodes.length} invalid nodes with missing coordinates or IDs`,
+        );
+      }
+
+      // Validate member structure
+      const invalidMembers = model.members.filter(
+        (member) => !member.id || !member.startNodeId || !member.endNodeId,
+      );
+
+      if (invalidMembers.length > 0) {
+        throw new Error(
+          `Found ${invalidMembers.length} invalid members with missing IDs or node references`,
+        );
+      }
+
+      console.log("✅ STEP 4 COMPLETE: Model validation passed");
+
+      // STEP 5: Store parsed data with multiple fallbacks
+      console.log("💾 STEP 5: Storing parsed data...");
+
+      try {
+        // Primary storage - full model
+        const modelJson = JSON.stringify(model);
+        sessionStorage.setItem("parsedModel", modelJson);
+
+        // Secondary storage - geometry only
+        const parsedGeometry = {
+          nodes: model.nodes,
+          members: model.members,
+          name: model.name,
+          units: model.units,
+          unitsSystem: model.unitsSystem,
+          timestamp: Date.now(),
+          status: "ready",
+        };
+
+        const geometryJson = JSON.stringify(parsedGeometry);
+        sessionStorage.setItem("parsedGeometry", geometryJson);
+        sessionStorage.setItem("currentModel", modelJson);
+
+        // Verify all storage operations
+        const verifyModel = sessionStorage.getItem("parsedModel");
+        const verifyGeometry = sessionStorage.getItem("parsedGeometry");
+        const verifyCurrent = sessionStorage.getItem("currentModel");
+
+        if (!verifyModel || !verifyGeometry || !verifyCurrent) {
+          throw new Error(
+            "Storage verification failed - data not found after save",
+          );
+        }
+
+        // Test parsing stored data
+        const testParse = JSON.parse(verifyModel);
+        if (!testParse.nodes || !testParse.members) {
+          throw new Error("Stored data parsing verification failed");
+        }
+
+        console.log("✅ STEP 5 COMPLETE: Data stored and verified:", {
+          primaryStorage: "parsedModel",
+          secondaryStorage: "parsedGeometry",
+          backupStorage: "currentModel",
+          modelSize: modelJson.length,
+          geometrySize: geometryJson.length,
+          timestamp: parsedGeometry.timestamp,
+        });
+      } catch (storageError) {
+        console.error("❌ STEP 5 FAILED: Storage error:", storageError);
+        throw new Error(
+          `Failed to store parsed model: ${storageError instanceof Error ? storageError.message : "Unknown storage error"}`,
+        );
+      }
+
+      // STEP 6: Dispatch events
+      console.log("📡 STEP 6: Dispatching events...");
+
+      try {
+        // Primary event - geometry parsed
+        const geometryEvent = new CustomEvent("geometryParsed", {
+          detail: {
+            model: model,
+            timestamp: Date.now(),
+            source: "model-parser",
+            nodes: model.nodes.length,
+            members: model.members.length,
+          },
+        });
+        window.dispatchEvent(geometryEvent);
+
+        // Secondary event - model ready
+        const readyEvent = new CustomEvent("modelReady", {
+          detail: {
+            modelId: model.id,
+            modelName: model.name,
+            timestamp: Date.now(),
+          },
+        });
+        window.dispatchEvent(readyEvent);
+
+        console.log("✅ STEP 6 COMPLETE: Events dispatched successfully");
+      } catch (eventError) {
+        console.warn("⚠️ Event dispatching failed (non-critical):", eventError);
+        // Don't fail the entire process for event errors
+      }
+
+      // STEP 7: Final logging and return
+      console.log("🎉 BULLETPROOF PARSER: Parsing completed successfully!", {
+        fileName: file.name,
+        modelName: model.name,
+        nodes: model.nodes.length,
+        members: model.members.length,
+        unitsSystem: model.unitsSystem,
+        units: `${model.units.length}/${model.units.force}`,
+        hasGeometry: !!model.geometry,
+        processingTime: Date.now(),
+      });
+
+      return model;
+    } catch (error) {
+      console.error("❌ BULLETPROOF PARSER: Parsing failed:", {
+        fileName: file.name,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Clean up any partial storage on failure
+      try {
+        sessionStorage.removeItem("parsedModel");
+        sessionStorage.removeItem("parsedGeometry");
+        sessionStorage.removeItem("currentModel");
+      } catch (cleanupError) {
+        console.warn("Cleanup failed:", cleanupError);
+      }
+
+      throw error;
+    }
   }
 
   private static readFileContent(file: File): Promise<string> {

@@ -190,12 +190,92 @@ class RetrainStatusResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
+    """Enhanced health check endpoint with ML pipeline status"""
     return HealthResponse(
         status="healthy",
         models_loaded=ml_trainer is not None and ml_trainer.building_type_ensemble is not None,
         version="1.0.0"
     )
+
+@app.get("/ml-pipeline/status")
+async def ml_pipeline_status():
+    """Get ML pipeline training status and health"""
+    try:
+        # Check if training artifacts exist
+        models_dir = Path("trained_models")
+        training_complete = models_dir.exists() and len(list(models_dir.glob("*.pkl"))) > 0
+        
+        # Check configuration
+        config_exists = Path("components.json").exists()
+        
+        # Check required files
+        required_files = ["staad_guide.pdf", "staad_model.png"]
+        files_status = {}
+        for file in required_files:
+            files_status[file] = Path(file).exists()
+        
+        return {
+            "pipeline_status": "operational" if training_complete else "needs_training",
+            "training_complete": training_complete,
+            "config_loaded": config_exists,
+            "required_files": files_status,
+            "models_loaded": ml_trainer is not None and ml_trainer.building_type_ensemble is not None,
+            "timestamp": datetime.now().isoformat(),
+            "version": "1.0.0"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking ML pipeline status: {str(e)}")
+        return {
+            "pipeline_status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+@app.post("/ml-pipeline/train")
+async def trigger_ml_training(background_tasks: BackgroundTasks):
+    """Trigger ML pipeline training (Docker-based)"""
+    try:
+        # This would trigger the Docker ML pipeline
+        # In production, this could run the Docker container
+        background_tasks.add_task(run_ml_pipeline_docker)
+        
+        return {
+            "status": "training_started",
+            "message": "ML pipeline training initiated",
+            "estimated_duration": "5-10 minutes",
+            "check_status_endpoint": "/ml-pipeline/status",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error starting ML pipeline training: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Training start error: {str(e)}")
+
+async def run_ml_pipeline_docker():
+    """Background task to run ML pipeline in Docker"""
+    try:
+        import subprocess
+        logger.info("Starting Docker ML pipeline training...")
+        
+        # Run the Docker ML pipeline
+        result = subprocess.run(
+            ["docker", "run", "--rm", "steel-ml"],
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minute timeout
+        )
+        
+        if result.returncode == 0:
+            logger.info("ML pipeline training completed successfully")
+            logger.info(f"Output: {result.stdout}")
+        else:
+            logger.error(f"ML pipeline training failed: {result.stderr}")
+            
+    except subprocess.TimeoutExpired:
+        logger.error("ML pipeline training timed out")
+    except Exception as e:
+        logger.error(f"Error running ML pipeline: {str(e)}")
 
 @app.get("/model-info", response_model=ModelInfoResponse)
 async def get_model_info():

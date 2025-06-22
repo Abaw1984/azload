@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -22,11 +21,11 @@ import {
   Zap,
 } from "lucide-react";
 import { StructuralModel } from "@/types/model";
-import ModelAnalyzer from "@/components/model-analyzer";
 import { ModelParserFactory } from "@/lib/model-parser";
+import { MCPManager } from "@/lib/mcp-manager";
 
 interface ModelUploadProps {
-  onModelUploaded?: (model: StructuralModel) => void;
+  setActiveTab: (tab: string) => void;
 }
 
 interface UploadState {
@@ -37,12 +36,7 @@ interface UploadState {
   warnings: string[];
 }
 
-function ModelUpload({ onModelUploaded = () => {} }: ModelUploadProps) {
-  const handleAnalysisComplete = (model: StructuralModel) => {
-    console.log("Analysis completed:", model);
-  };
-
-  const navigate = useNavigate();
+function ModelUpload({ setActiveTab }: ModelUploadProps) {
   const [uploadState, setUploadState] = useState<UploadState>({
     isUploading: false,
     progress: 0,
@@ -89,18 +83,23 @@ function ModelUpload({ onModelUploaded = () => {} }: ModelUploadProps) {
     setDragActive(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileUpload(e.dataTransfer.files[0]);
+      handleUpload(e.dataTransfer.files[0]);
     }
   }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      handleFileUpload(e.target.files[0]);
+      handleUpload(e.target.files[0]);
     }
   };
 
-  const handleFileUpload = async (file: File) => {
-    console.log("🎯 Starting file upload process:", file.name);
+  async function handleUpload(file: File) {
+    console.log("🚀 BULLETPROOF UPLOAD WORKFLOW START:", {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+      timestamp: new Date().toISOString(),
+    });
 
     // Validate file type
     const fileExtension = file.name
@@ -120,263 +119,213 @@ function ModelUpload({ onModelUploaded = () => {} }: ModelUploadProps) {
       return;
     }
 
-    setUploadState({
-      isUploading: true,
-      progress: 0,
-      currentStep: "Uploading file to server",
-      error: null,
-      warnings: [],
-    });
-
     try {
-      // Simulate file upload and parsing process
-      const steps = [
-        { name: "Uploading file to server", duration: 500 },
-        { name: "Validating file format", duration: 300 },
-        { name: "Parsing structural model", duration: 1000 },
-        { name: "Extracting geometry data", duration: 800 },
-        { name: "Processing members and nodes", duration: 600 },
-        { name: "Loading materials and sections", duration: 400 },
-        { name: "Finalizing model structure", duration: 200 },
-      ];
-
-      let currentProgress = 0;
-      const totalDuration = steps.reduce((sum, step) => sum + step.duration, 0);
-
-      for (const step of steps) {
-        setUploadState((prev) => ({
-          ...prev,
-          currentStep: step.name,
-          progress: (currentProgress / totalDuration) * 100,
-        }));
-
-        await new Promise((resolve) => setTimeout(resolve, step.duration));
-        currentProgress += step.duration;
-      }
-
-      // Parse with new professional parser
-      setUploadState((prev) => ({
-        ...prev,
-        currentStep: "Parsing structural model...",
-        progress: 85,
-      }));
-
-      console.log("🔧 Starting model parsing with ModelParserFactory...");
-      const parsedModel = await ModelParserFactory.parseFile(file);
-      console.log("✅ Model parsing completed successfully", parsedModel);
-
-      // Enhanced validation with detailed logging
-      if (!parsedModel) {
-        console.error("❌ Parser returned null/undefined model");
-        throw new Error("Parser failed to return a valid model");
-      }
-
-      if (!parsedModel.nodes) {
-        console.error("❌ Model missing nodes array", parsedModel);
-        throw new Error("Invalid model structure - missing nodes array");
-      }
-
-      if (!parsedModel.members) {
-        console.error("❌ Model missing members array", parsedModel);
-        throw new Error("Invalid model structure - missing members array");
-      }
-
-      if (!Array.isArray(parsedModel.nodes)) {
-        console.error(
-          "❌ Model nodes is not an array",
-          typeof parsedModel.nodes,
-        );
-        throw new Error("Invalid model structure - nodes is not an array");
-      }
-
-      if (!Array.isArray(parsedModel.members)) {
-        console.error(
-          "❌ Model members is not an array",
-          typeof parsedModel.members,
-        );
-        throw new Error("Invalid model structure - members is not an array");
-      }
-
-      if (parsedModel.nodes.length === 0) {
-        console.error("❌ Model has empty nodes array");
-        throw new Error("No nodes found in the model file - check file format");
-      }
-
-      if (parsedModel.members.length === 0) {
-        console.error("❌ Model has empty members array");
-        throw new Error(
-          "No members found in the model file - check file format",
-        );
-      }
-
-      console.log(`✅ Model Parsing Complete:`, {
-        name: parsedModel.name,
-        type: parsedModel.type,
-        nodes: parsedModel.nodes.length,
-        members: parsedModel.members.length,
-        geometry: parsedModel.geometry,
-        units: parsedModel.units,
-        hasValidStructure: true,
-      });
-
-      // Set progress to 90% before callback
-      setUploadState((prev) => ({
-        ...prev,
-        currentStep: "Initializing model analysis...",
-        progress: 90,
-      }));
-
-      console.log(
-        "🎯 Calling onModelUploaded callback with validated model...",
-      );
-      console.log("📤 Invoking onModelUploaded callback...");
-
-      // Call parent callback and handle the response with enhanced error handling
-      console.log("📤 Calling onModelUploaded with validated model...");
-      try {
-        // Add timeout to prevent hanging
-        const callbackPromise = onModelUploaded(parsedModel);
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  "Model processing timeout - this may indicate an issue with MCP initialization",
-                ),
-              ),
-            30000,
-          ),
-        );
-
-        await Promise.race([callbackPromise, timeoutPromise]);
-        console.log("✅ onModelUploaded callback completed successfully");
-      } catch (callbackError) {
-        console.error("❌ onModelUploaded callback failed:", {
-          error: callbackError,
-          message:
-            callbackError instanceof Error
-              ? callbackError.message
-              : "Unknown error",
-          stack:
-            callbackError instanceof Error
-              ? callbackError.stack
-              : "No stack trace",
-        });
-
-        // Provide more specific error messages
-        let errorMessage = "Model processing failed";
-        if (callbackError instanceof Error) {
-          if (callbackError.message.includes("timeout")) {
-            errorMessage =
-              "Model processing timed out. This may indicate an issue with the AI analysis or MCP initialization. Please try again or contact support.";
-          } else if (callbackError.message.includes("MCP")) {
-            errorMessage = `MCP initialization failed: ${callbackError.message}. Please try uploading the model again.`;
-          } else if (callbackError.message.includes("ML API")) {
-            errorMessage = `AI analysis failed: ${callbackError.message}. The system will use rule-based analysis instead.`;
-          } else {
-            errorMessage = `Model processing failed: ${callbackError.message}`;
-          }
-        }
-
-        throw new Error(errorMessage);
-      }
-
-      // Set final success state
+      // STEP 1: Start upload with detailed logging
+      console.log("📤 STEP 1: Starting upload process...");
       setUploadState({
-        isUploading: false,
-        progress: 100,
-        currentStep: "Model uploaded successfully! Switching to visualizer...",
+        isUploading: true,
+        progress: 10,
+        currentStep: "Reading file...",
         error: null,
         warnings: [],
       });
 
-      // Brief delay to show success message
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // STEP 2: Parse file with enhanced error handling
+      console.log("🔍 STEP 2: Parsing structural model...");
+      setUploadState((prev) => ({
+        ...prev,
+        progress: 30,
+        currentStep: "Parsing structural model...",
+      }));
+
+      const parsedModel = await ModelParserFactory.parseFile(file);
+      console.log("✅ STEP 2 COMPLETE: Model parsed successfully:", {
+        name: parsedModel.name,
+        nodes: parsedModel.nodes?.length || 0,
+        members: parsedModel.members?.length || 0,
+        units: parsedModel.units,
+        unitsSystem: parsedModel.unitsSystem,
+        hasGeometry: !!parsedModel.geometry,
+        geometryDetails: parsedModel.geometry
+          ? {
+              buildingLength: parsedModel.geometry.buildingLength,
+              buildingWidth: parsedModel.geometry.buildingWidth,
+              totalHeight: parsedModel.geometry.totalHeight,
+            }
+          : null,
+      });
+
+      // CRITICAL: Validate parsed model before proceeding
+      if (!parsedModel || !parsedModel.nodes || !parsedModel.members) {
+        throw new Error("Invalid parsed model - missing nodes or members");
+      }
+
+      if (parsedModel.nodes.length === 0) {
+        throw new Error("Parsed model has no nodes");
+      }
+
+      if (parsedModel.members.length === 0) {
+        throw new Error("Parsed model has no members");
+      }
+
+      // STEP 3: Store in session with verification
+      console.log("💾 STEP 3: Storing model data in sessionStorage...");
+      setUploadState((prev) => ({
+        ...prev,
+        progress: 50,
+        currentStep: "Storing model data...",
+      }));
+
+      try {
+        const modelJson = JSON.stringify(parsedModel);
+        sessionStorage.setItem("parsedModel", modelJson);
+
+        // Verify storage immediately
+        const storedModel = sessionStorage.getItem("parsedModel");
+        if (!storedModel) {
+          throw new Error("Failed to store model in sessionStorage");
+        }
+
+        // Verify we can parse it back
+        const verifyModel = JSON.parse(storedModel);
+        if (!verifyModel.nodes || !verifyModel.members) {
+          throw new Error("Stored model verification failed");
+        }
+
+        console.log(
+          "✅ STEP 3 COMPLETE: Model stored and verified in sessionStorage",
+        );
+      } catch (storageError) {
+        console.error("❌ Storage failed:", storageError);
+        throw new Error(
+          `Failed to store model: ${storageError instanceof Error ? storageError.message : "Unknown storage error"}`,
+        );
+      }
+
+      // STEP 4: Initialize MCP with bulletproof error handling
+      console.log("🤖 STEP 4: Initializing MCP with AI analysis...");
+      setUploadState((prev) => ({
+        ...prev,
+        progress: 70,
+        currentStep: "Initializing AI analysis...",
+      }));
+
+      try {
+        console.log("🔄 MCP Manager obtained, starting initialization...");
+
+        await MCPManager.initializeFromModel(parsedModel);
+
+        // Verify MCP was actually initialized
+        const mcpState = MCPManager.getState();
+        console.log("🔍 MCP State after initialization:", {
+          isInitialized: mcpState.isInitialized,
+          hasCurrent: !!mcpState.current,
+          error: mcpState.error,
+          currentId: mcpState.current?.id,
+        });
+
+        if (!mcpState.isInitialized || !mcpState.current) {
+          throw new Error(
+            `MCP initialization failed: ${mcpState.error || "Unknown MCP error"}`,
+          );
+        }
+
+        console.log("✅ STEP 4 COMPLETE: MCP initialized successfully:", {
+          mcpId: mcpState.current.id,
+          buildingType: mcpState.current.buildingType,
+          confidence:
+            (mcpState.current.buildingTypeConfidence * 100).toFixed(1) + "%",
+          memberTags: mcpState.current.memberTags.length,
+        });
+      } catch (mcpError) {
+        console.error("❌ MCP initialization failed:", mcpError);
+        throw new Error(
+          `AI analysis failed: ${mcpError instanceof Error ? mcpError.message : "Unknown MCP error"}`,
+        );
+      }
+
+      // STEP 5: Fire events with verification
+      console.log("📡 STEP 5: Firing geometry events...");
+      setUploadState((prev) => ({
+        ...prev,
+        progress: 90,
+        currentStep: "Preparing visualization...",
+      }));
+
+      try {
+        // Fire geometry event with detailed payload
+        const geometryEvent = new CustomEvent("geometryParsed", {
+          detail: {
+            model: parsedModel,
+            timestamp: Date.now(),
+            source: "model-upload",
+          },
+        });
+        window.dispatchEvent(geometryEvent);
+
+        // Also fire a model ready event
+        const readyEvent = new CustomEvent("modelReady", {
+          detail: {
+            modelId: parsedModel.id,
+            timestamp: Date.now(),
+          },
+        });
+        window.dispatchEvent(readyEvent);
+
+        console.log("✅ STEP 5 COMPLETE: Events fired successfully");
+      } catch (eventError) {
+        console.warn("⚠️ Event firing failed (non-critical):", eventError);
+        // Don't fail the entire process for event errors
+      }
+
+      // STEP 6: Complete and switch tab
+      console.log("🎯 STEP 6: Completing upload workflow...");
+      setUploadState({
+        isUploading: false,
+        progress: 100,
+        currentStep: "Upload complete!",
+        error: null,
+        warnings: [],
+      });
+
+      // Small delay to show completion, then switch tab
+      setTimeout(() => {
+        console.log("✅ STEP 6 COMPLETE: Switching to analyze tab");
+        console.log("🎉 UPLOAD WORKFLOW COMPLETE - ALL SYSTEMS GO!");
+        setActiveTab("analyze");
+      }, 1000); // Increased delay to ensure everything is ready
     } catch (error) {
-      console.error("❌ File parsing/processing failed:", {
-        error,
-        message: error instanceof Error ? error.message : "Unknown error",
-        stack: error instanceof Error ? error.stack : "No stack trace",
+      console.error("❌ BULLETPROOF UPLOAD WORKFLOW FAILED:", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
         fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
         timestamp: new Date().toISOString(),
       });
 
-      let errorMessage = "Failed to parse file";
-      let suggestions: string[] = [];
-
-      if (error instanceof Error) {
-        errorMessage = error.message;
-
-        // Provide specific suggestions based on error type
-        if (error.message.includes("timeout")) {
-          suggestions.push("The operation timed out. Please try again.");
-          suggestions.push(
-            "If the problem persists, try a smaller file or contact support.",
-          );
-        } else if (
-          error.message.includes("nodes") ||
-          error.message.includes("members")
-        ) {
-          suggestions.push("The file appears to be missing structural data.");
-          suggestions.push(
-            "Please ensure your model file contains node coordinates and member connectivity.",
-          );
-          suggestions.push(
-            "Try exporting the model again from your structural analysis software.",
-          );
-        } else if (error.message.includes("MCP")) {
-          suggestions.push(
-            "There was an issue with model analysis initialization.",
-          );
-          suggestions.push("Please try uploading the file again.");
-          suggestions.push(
-            "If the problem persists, refresh the page and try again.",
-          );
-        } else if (
-          error.message.includes("ML API") ||
-          error.message.includes("AI")
-        ) {
-          suggestions.push(
-            "AI analysis encountered an issue, but the model should still work.",
-          );
-          suggestions.push("The system will use rule-based analysis instead.");
-          suggestions.push(
-            "Check that the ML API server is running at http://178.128.135.194",
-          );
-          suggestions.push(
-            "You can proceed with manual classification if needed.",
-          );
-        } else {
-          suggestions.push(
-            "Please check that your file is a valid STAAD.Pro or SAP2000 model.",
-          );
-          suggestions.push(
-            "Ensure the file is not corrupted and contains complete structural data.",
-          );
-        }
-      }
+      const errorMessage =
+        error instanceof Error ? error.message : "Upload failed";
 
       setUploadState({
         isUploading: false,
         progress: 0,
         currentStep: "",
-        error: errorMessage,
-        warnings: suggestions,
+        error: `Upload failed: ${errorMessage}`,
+        warnings: [],
       });
 
-      console.log("❌ Upload failed, staying on upload page for user to retry");
-
-      // Clear any partial session data that might cause issues
+      // Enhanced cleanup on failure
+      console.log("🧹 Cleaning up after failure...");
       try {
+        sessionStorage.removeItem("parsedModel");
         sessionStorage.removeItem("currentModel");
-        console.log("🧹 Cleared partial session data");
-      } catch (clearError) {
-        console.warn("Failed to clear session data:", clearError);
+        sessionStorage.removeItem("parsedGeometry");
+        MCPManager.resetMCP();
+        console.log("✅ Cleanup completed");
+      } catch (cleanupError) {
+        console.error("❌ Cleanup failed:", cleanupError);
       }
     }
-  };
+  }
 
   return (
     <div className="space-y-6 bg-white">

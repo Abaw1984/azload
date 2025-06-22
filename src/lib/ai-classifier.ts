@@ -9,7 +9,7 @@ import {
 
 // ML API Configuration - Production Ready
 const ML_API_BASE_URL =
-  import.meta.env.VITE_ML_API_URL || "http://178.128.135.194";
+  import.meta.env.VITE_ML_API_URL || "http://localhost:8000";
 
 // ML API enabled for production deployment
 const ML_API_ENABLED = true;

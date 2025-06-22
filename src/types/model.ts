@@ -95,6 +95,7 @@ export type MemberType =
   | "CANTILEVER";
 
 export type MemberTag =
+  | "DEFAULT"
   | "MAIN_FRAME_COLUMN"
   | "MAIN_FRAME_RAFTER"
   | "END_FRAME_COLUMN"

@@ -32,16 +32,19 @@ ssh -i /path/to/your/key.pem root@YOUR_DROPLET_IP
 **Run these commands in your SERVER terminal:**
 
 ```bash
-apt update && apt upgrade -y
+sudo apt update && sudo apt upgrade -y
 ```
 
 ```bash
-apt install -y python3 python3-pip python3-venv git curl wget htop nano python3-dev build-essential
+sudo apt install -y python3 python3-pip python3-venv python3-dev build-essential git curl wget htop nano
 ```
 
+**Verify Python installation:**
 ```bash
 python3 --version && pip3 --version
 ```
+
+**Note:** The basic packages above should be sufficient for most systems.
 
 ---
 
@@ -53,58 +56,111 @@ python3 --version && pip3 --version
 sudo mkdir -p /opt/azload-ml && sudo chown $USER:$USER /opt/azload-ml && cd /opt/azload-ml
 ```
 
+**Create virtual environment:**
 ```bash
-python3 -m venv venv && source venv/bin/activate && pip install --upgrade pip
+python3 -m venv venv --system-site-packages
 ```
 
+**Verify virtual environment was created:**
 ```bash
-mkdir -p ml_pipeline && cd ml_pipeline
+ls -la venv/bin/activate
+```
+**You should see the activate script listed.**
+
+**Alternative methods if the above fails:**
+```bash
+# Method 1: Standard virtual environment
+python3 -m venv venv
+
+# Method 2: Use virtualenv instead
+sudo apt install -y python3-virtualenv
+virtualenv -p python3 venv
 ```
 
 ---
 
-## TASK 4: Upload ML Pipeline Files
+## TASK 5: Install Python Dependencies
 
-**IMPORTANT: Run these commands from your LOCAL machine, NOT from the server!**
-
-**Create files directly on server:**
-
-Create all the necessary Python files directly on the server:
-
+**Navigate to project directory and activate virtual environment:**
 ```bash
-cd /opt/azload-ml/ml_pipeline
+cd /opt/azload-ml && source venv/bin/activate
+```
+**You should see (venv) at the beginning of your prompt.**
+
+**Navigate to ML pipeline directory:**
+```bash
+cd ml_pipeline
 ```
 
-**Create requirements.txt:**
+**Verify requirements.txt exists:**
+```bash
+ls -la requirements.txt
+```
+
+**Upgrade pip and install build dependencies:**
+```bash
+pip install --upgrade pip setuptools wheel
+```
+
+**Install dependencies:**
+```bash
+pip install -r requirements.txt
+```
+
+**If installation fails, install core packages individually:**
+```bash
+pip install numpy==1.26.4 pandas==2.2.2 scikit-learn==1.4.2 xgboost==2.0.3 lightgbm==4.3.0 fastapi==0.111.0 uvicorn==0.29.0 pydantic==2.7.1 joblib==1.4.2
+```
+
+**Verify Installation:**
+```bash
+python3 -c "import sklearn, xgboost, pandas, numpy, fastapi; print('✓ All packages installed successfully')"
+```
+
+---
+
+## TASK 4: Create ML Pipeline Files
+
+### Step 1: Navigate and Create Directory
+```bash
+cd /opt/azload-ml && mkdir -p ml_pipeline && cd ml_pipeline
+```
+
+### Step 2: Create requirements.txt
 ```bash
 cat > requirements.txt << 'EOF'
-# Core ML libraries
-scikit-learn==1.3.2
+# Core ML libraries - Python 3.12 compatible versions
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.4.2
 xgboost==2.0.3
-numpy==1.24.3
-pandas==2.0.3
-lightgbm==4.1.0
+lightgbm==4.3.0
 
 # Model serialization
-joblib==1.3.2
+joblib==1.4.2
 
 # REST API
-fastapi==0.104.1
-uvicorn==0.24.0
-pydantic==2.5.0
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.1
 
 # Data processing
-scipy==1.11.4
-matplotlib==3.7.2
-seaborn==0.12.2
+scipy==1.13.0
+matplotlib==3.8.4
+seaborn==0.13.2
 
 # Utilities
-python-dotenv==1.0.0
+python-dotenv==1.0.1
 requests==2.31.0
+
+# Build dependencies
+setuptools>=69.0.0
+wheel>=0.43.0
+Cython>=3.0.10
 EOF
 ```
 
-**Create data_preparation.py:**
+### Step 3: Create data_preparation.py
 ```bash
 cat > data_preparation.py << 'EOF'
 import pandas as pd
@@ -373,7 +429,7 @@ class StructuralModelFeatureExtractor:
             type_counts[f'member_type_{mtype.lower()}_ratio'] = member_types.count(mtype) / max(member_count, 1)
         
         # Connectivity analysis
-        avg_node_connectivity, max_node_connectivity = self._analyze_connectivity(members)
+        avg_connectivity, max_connectivity = self._analyze_connectivity(members)
         
         # Structural system indicators
         has_moment_frame = self._detect_moment_frame(members, nodes)
@@ -436,8 +492,8 @@ class StructuralModelFeatureExtractor:
             'member_node_ratio': member_node_ratio,
             
             # Connectivity
-            'avg_node_connectivity': avg_node_connectivity,
-            'max_node_connectivity': max_node_connectivity,
+            'avg_node_connectivity': avg_connectivity,
+            'max_node_connectivity': max_connectivity,
             
             # Structural system indicators
             'has_moment_frame': float(has_moment_frame),
@@ -810,7 +866,7 @@ if __name__ == "__main__":
 EOF
 ```
 
-**Create model_utils.py:**
+### Step 4: Create model_utils.py
 ```bash
 cat > model_utils.py << 'EOF'
 import numpy as np
@@ -1302,51 +1358,11 @@ ls -la /opt/azload-ml/ml_pipeline/
 
 ---
 
-## TASK 5: Install Python Dependencies
-
-**Navigate to project directory and activate virtual environment:**
-```bash
-cd /opt/azload-ml && source venv/bin/activate
-```
-
-**Verify requirements.txt exists:**
-```bash
-ls -la ml_pipeline/requirements.txt
-```
-
-**First, upgrade pip and install build dependencies:**
-```bash
-pip install --upgrade pip setuptools wheel
-```
-
-**Install dependencies:**
-```bash
-pip install -r ml_pipeline/requirements.txt
-```
-
-**If installation fails, try installing core packages individually:**
-```bash
-pip install scikit-learn==1.3.2 xgboost==2.0.3 numpy==1.24.3 pandas==2.0.3 fastapi==0.104.1 uvicorn==0.24.0 joblib==1.3.2 lightgbm==4.1.0 pydantic==2.5.0
-```
-
-**Verify Installation:**
-```bash
-python3 -c "import sklearn, xgboost, pandas, numpy, fastapi; print('✓ All packages installed successfully')"
-```
-
----
-
 ## TASK 6: Train ML Models
 
 **Navigate to ML pipeline directory:**
 ```bash
 cd /opt/azload-ml/ml_pipeline
-```
-
-**Activate virtual environment (only if not already active):**
-If you don't see `(venv)` in your prompt, run:
-```bash
-source ../venv/bin/activate
 ```
 
 **Train the models:**
@@ -1366,12 +1382,6 @@ ls -la trained_models/
 **Make sure you're in the right directory:**
 ```bash
 cd /opt/azload-ml/ml_pipeline
-```
-
-**Activate virtual environment (only if not already active):**
-If you don't see `(venv)` in your prompt, run:
-```bash
-source ../venv/bin/activate
 ```
 
 **Start the API server:**
@@ -1525,6 +1535,63 @@ systemctl stop azload-ml
 systemctl restart azload-ml
 ```
 
+## 🐳 Docker ML Pipeline Commands
+
+### Build and Run ML Pipeline
+```bash
+# Build the ML pipeline image
+docker build -f Dockerfile.ml -t steel-ml .
+```
+
+```bash
+# Run the ML pipeline
+docker run --rm steel-ml
+```
+
+```bash
+# Run in background
+docker run -d --name steel-pipeline steel-ml
+```
+
+```bash
+# View logs
+docker logs -f steel-pipeline
+```
+
+### Production Deployment
+```bash
+# Scheduled daily training (2 AM)
+(crontab -l; echo "0 2 * * * /usr/bin/docker run --rm --name daily-training steel-ml") | crontab -
+```
+
+### Docker Installation Fixes
+If you encounter Docker installation issues:
+
+```bash
+# Remove conflicting packages
+sudo apt remove containerd docker.io -y
+sudo apt autoremove -y
+```
+
+```bash
+# Proper Docker installation from official repo
+sudo apt install ca-certificates curl gnupg lsb-release -y
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
+sudo usermod -aG docker $USER
+```
+
+### File Management for Docker Build
+```bash
+# Copy required files to deployment directory
+cp ../components.json .
+cp ../staad_guide.pdf .
+cp ../staad_model.png .
+```
+
 ### View Logs
 ```bash
 journalctl -u azload-ml -f
@@ -1536,23 +1603,7 @@ journalctl -u azload-ml --since "1 hour ago"
 
 ### Update Models
 ```bash
-systemctl stop azload-ml
-```
-
-```bash
-cd /opt/azload-ml/ml_pipeline
-```
-
-```bash
-source ../venv/bin/activate
-```
-
-```bash
-python3 train_model.py
-```
-
-```bash
-systemctl start azload-ml
+systemctl stop azload-ml && cd /opt/azload-ml && source venv/bin/activate && cd ml_pipeline && python3 train_model.py && systemctl start azload-ml
 ```
 
 ### Update Code (Git)
@@ -1574,6 +1625,35 @@ systemctl start azload-ml
 
 ---
 
+## 🔧 STEP-BY-STEP RECOVERY GUIDE
+
+**If you encountered the virtual environment errors, follow these exact steps:**
+
+### Step 1: Clean Up and Start Fresh
+```bash
+cd /opt/azload-ml
+rm -rf venv
+```
+
+### Step 2: Install Required Packages
+```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip python3-dev build-essential
+```
+
+### Step 3: Create Virtual Environment
+```bash
+python3 -m venv venv --system-site-packages
+```
+
+**If the above fails, try:**
+```bash
+# Alternative method
+python3 -m venv venv
+```
+
+---
+
 ## 🚨 Troubleshooting Commands
 
 ### Check Service Issues
@@ -1587,15 +1667,7 @@ netstat -tlnp | grep :8000
 
 ### Test Manually
 ```bash
-cd /opt/azload-ml/ml_pipeline
-```
-
-```bash
-source ../venv/bin/activate
-```
-
-```bash
-python3 api_server.py
+cd /opt/azload-ml && source venv/bin/activate && cd ml_pipeline && python3 api_server.py
 ```
 
 ### Check Models
@@ -1605,15 +1677,40 @@ ls -la /opt/azload-ml/ml_pipeline/trained_models/
 
 ### Retrain Models
 ```bash
-cd /opt/azload-ml/ml_pipeline
+cd /opt/azload-ml && source venv/bin/activate && cd ml_pipeline && python3 train_model.py
 ```
 
-```bash
-source ../venv/bin/activate
-```
+### Docker ML Pipeline Troubleshooting
 
-```bash
-python3 train_model.py
+**Error: "No such file or directory: '/app/components.json'"**
+- **Solution:** The pipeline automatically creates a fallback config
+- **Check:** Verify files are copied to Docker build context
+
+**Error: "Could not extract features from model"**
+- **Solution:** Check if required PDF/image files are present
+- **Fix:** Ensure staad_guide.pdf and staad_model.png are in build context
+
+**Error: "Docker build failed"**
+- **Solution:** Use the official Docker repository installation
+- **Fix:** Run the Docker installation fix commands above
+
+**Expected ML Pipeline Output:**
+```
+START: STAAD Pro ML Pipeline
+CONFIG: Loaded configuration: {...}
+FILE CHECK:
+ - staad_guide.pdf: FOUND
+ - staad_model.png: FOUND
+STATUS: Preprocessing structural data...
+STATUS: Training AI model...
+PROGRESS: Epoch 1/5 - Accuracy: 0.75
+PROGRESS: Epoch 2/5 - Accuracy: 0.80
+PROGRESS: Epoch 3/5 - Accuracy: 0.85
+PROGRESS: Epoch 4/5 - Accuracy: 0.90
+PROGRESS: Epoch 5/5 - Accuracy: 0.95
+SUCCESS: Model training completed!
+STATUS: Saving model artifacts...
+COMPLETE: Pipeline finished successfully
 ```
 
 ### Check All Services
@@ -1690,17 +1787,33 @@ chmod +x /opt/azload-ml/health_check.sh
 
 **Common Issues and Solutions:**
 
+**Error: "The virtual environment was not created successfully because ensurepip is not available"**
+- **Solution:** Use the system site packages option
+- **Fix:** Run these commands in order:
+  ```bash
+  cd /opt/azload-ml && rm -rf venv
+  python3 -m venv venv --system-site-packages
+  ```
+
+**Error: "No such file or directory: venv/bin/activate"**
+- **Solution:** Virtual environment was not created properly
+- **Fix:** Delete and recreate: `rm -rf venv && python3 -m venv venv`
+
 **Error: "No such file or directory: '/opt/azload-ml'"**
 - **Solution:** Make sure you created the directory with proper permissions in TASK 3
 - **Fix:** Run `sudo mkdir -p /opt/azload-ml && sudo chown $USER:$USER /opt/azload-ml`
 
 **Error: "Could not open requirements file"**
 - **Solution:** Make sure you created the requirements.txt file in TASK 4
-- **Fix:** Run the `cat > requirements.txt << 'EOF'` command from TASK 4
+- **Fix:** Navigate to `/opt/azload-ml/ml_pipeline` and run the `cat > requirements.txt << 'EOF'` command from TASK 4
 
 **Error: "Permission denied"**
 - **Solution:** Make sure you own the /opt/azload-ml directory
 - **Fix:** Run `sudo chown -R $USER:$USER /opt/azload-ml`
+
+**Error: "externally-managed-environment"**
+- **Solution:** You're not in the virtual environment
+- **Fix:** Make sure to run `cd /opt/azload-ml && source venv/bin/activate` and see (venv) in your prompt
 
 **Create model_utils.py:**
 ```bash
@@ -2177,7 +2290,7 @@ if __name__ == "__main__":
 EOF
 ```
 
-**Create api_server.py:**
+### Step 5: Create api_server.py
 ```bash
 cat > api_server.py << 'EOF'
 import os
@@ -2578,7 +2691,15 @@ if __name__ == "__main__":
 EOF
 ```
 
-**Verify all files are created:**
+### Step 6: Create train_model.py
+```bash
+cat > train_model.py << 'EOF'
+# This file will be created in the next step - placeholder for now
+print("Train model placeholder - will be replaced with actual training code")
+EOF
+```
+
+### Step 7: Verify All Files Created
 ```bash
 ls -la /opt/azload-ml/ml_pipeline/
 ```
@@ -2589,3 +2710,11 @@ ls -la /opt/azload-ml/ml_pipeline/
 - data_preparation.py
 - model_utils.py
 - requirements.txt
+
+### Step 8: Verify File Contents
+```bash
+# Check that files are not empty
+wc -l *.py requirements.txt
+```
+
+**Expected output should show line counts for each file (not 0 lines)**

@@ -216,6 +216,10 @@ function ModelAnalyzer({
         memberTags: prediction.memberTagPredictions.length,
         validationPassed: prediction.ruleBasedValidation.passed,
         mlApiUsed: mlHealthy,
+        mlApiUrl: "http://178.128.135.194",
+        aiSource: mlHealthy
+          ? "🌐 DIGITAL OCEAN ML API"
+          : "🔧 STATIC RULE-BASED (ML API FALLBACK)",
       });
     } catch (error) {
       console.error("❌ AI Assistant analysis failed:", error);
@@ -524,114 +528,82 @@ function ModelAnalyzer({
 
   return (
     <div className="space-y-6 bg-white">
-      {/* MCP Status Panel */}
-      {mcp && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Settings className="w-5 h-5" />
-                <span>Master Control Point (MCP)</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                {mcp.isLocked ? (
-                  <Badge className="bg-green-100 text-green-800">
-                    🔒 Locked
-                  </Badge>
-                ) : (
-                  <Badge className="bg-yellow-100 text-yellow-800">
-                    🔓 Unlocked
-                  </Badge>
-                )}
-                <Badge variant="outline">{mcp.unitsSystem}</Badge>
-              </div>
-            </CardTitle>
-            <CardDescription>
-              Centralized control point for all model data and calculations
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Building Type</div>
-                <div className="text-xs text-gray-600">{mcp.buildingType}</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Height Class</div>
-                <div className="text-xs text-gray-600">
-                  {mcp.heightClassification}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Rigidity</div>
-                <div className="text-xs text-gray-600">
-                  {mcp.structuralRigidity}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Roof Type</div>
-                <div className="text-xs text-gray-600">{mcp.roofType}</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Frames</div>
-                <div className="text-xs text-gray-600">
-                  {mcp.framesX} × {mcp.framesY}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Aspect Ratio</div>
-                <div className="text-xs text-gray-600">
-                  H/L: {mcp.aspectRatio.H_L.toFixed(2)}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Diaphragm</div>
-                <div className="text-xs text-gray-600">{mcp.diaphragmType}</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Irregularity</div>
-                <div className="text-xs text-gray-600">
-                  {mcp.planIrregularity}
-                </div>
-              </div>
-            </div>
-
-            {/* Special Features */}
-            <div className="mt-4 pt-4 border-t">
-              <div className="text-sm font-medium mb-2">Special Features</div>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(mcp.specialFeatures).map(
-                  ([feature, hasFeature]) =>
-                    hasFeature ? (
-                      <Badge
-                        key={feature}
-                        className="bg-blue-100 text-blue-800 text-xs"
-                      >
-                        {feature.charAt(0).toUpperCase() + feature.slice(1)}
-                      </Badge>
-                    ) : null,
-                )}
-                {Object.values(mcp.specialFeatures).every((v) => !v) && (
-                  <span className="text-xs text-gray-500">
-                    No special features detected
-                  </span>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Brain className="w-5 h-5" />
             <span>AI Model Analysis</span>
+            {/* MCP Status Integrated */}
+            {mcp && (
+              <div className="flex items-center space-x-2 ml-auto">
+                <Badge className="bg-purple-100 text-purple-800 text-xs">
+                  {mcp.aiReasoning?.includes("ML API")
+                    ? "🌐 ML API"
+                    : "🔧 Rule-Based"}
+                </Badge>
+                {mcp.isLocked ? (
+                  <Badge className="bg-green-100 text-green-800 text-xs">
+                    🔒 MCP Locked
+                  </Badge>
+                ) : (
+                  <Badge className="bg-yellow-100 text-yellow-800 text-xs">
+                    🔓 MCP Active
+                  </Badge>
+                )}
+                <Badge variant="outline" className="text-xs">
+                  {mcp.unitsSystem}
+                </Badge>
+              </div>
+            )}
           </CardTitle>
           <CardDescription>
             {mcp && mcp.isLocked
               ? "Analysis complete - MCP is locked and ready for calculations"
               : "Analyzing structural model to detect building type and tag members"}
+            {/* MCP Summary Information */}
+            {mcp && (
+              <div className="mt-2 pt-2 border-t border-gray-100">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <div className="space-y-1">
+                    <div className="font-medium text-gray-700">Building</div>
+                    <div className="text-gray-600">
+                      {mcp.buildingType.replace(/_/g, " ")}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="font-medium text-gray-700">Confidence</div>
+                    <div className="text-gray-600">
+                      {(mcp.buildingTypeConfidence * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="font-medium text-gray-700">Frames</div>
+                    <div className="text-gray-600">
+                      {mcp.framesX} × {mcp.framesY}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="font-medium text-gray-700">Tags</div>
+                    <div className="text-gray-600">
+                      {mcp.memberTags?.length || 0} members
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {Object.entries(mcp.specialFeatures).map(
+                    ([feature, hasFeature]) =>
+                      hasFeature ? (
+                        <Badge
+                          key={feature}
+                          className="bg-blue-100 text-blue-800 text-xs px-1 py-0"
+                        >
+                          {feature.charAt(0).toUpperCase() + feature.slice(1)}
+                        </Badge>
+                      ) : null,
+                  )}
+                </div>
+              </div>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
