@@ -11,6 +11,90 @@ cd /opt/azload-ml
 ./deploy.sh production
 ```
 
+## ML Model Retraining Process
+
+### Current ML Method
+The system uses an **Ensemble Random Forest Classifier** with the following components:
+- **Building Type Classifier**: Random Forest with 100 estimators
+- **Member Tag Classifier**: Random Forest with feature engineering
+- **Feature Engineering**: Geometric ratios, structural patterns, member orientations
+- **Training Data**: User corrections, manual overrides, and validated predictions
+
+### Retraining Commands
+
+```bash
+# 1. Export current training data from UI
+# This is done through the AI Assistant exportTrainingData() method
+
+# 2. SSH to your ML server
+ssh root@178.128.135.194
+
+# 3. Navigate to ML pipeline directory
+cd /opt/azload-ml
+
+# 4. Backup current model
+cp models/building_classifier.pkl models/building_classifier_backup_$(date +%Y%m%d).pkl
+cp models/member_classifier.pkl models/member_classifier_backup_$(date +%Y%m%d).pkl
+
+# 5. Run retraining with new data
+python train_model.py --retrain --data-path /path/to/exported/training/data.json
+
+# 6. Validate new model performance
+python validate_model.py --test-split 0.2
+
+# 7. Deploy new model (if validation passes)
+sudo systemctl restart azload-ml-api
+
+# 8. Test API health
+curl http://178.128.135.194/health
+```
+
+### Automated Retraining Schedule
+
+```bash
+# Add to crontab for weekly retraining
+crontab -e
+
+# Add this line for Sunday 2 AM retraining
+0 2 * * 0 cd /opt/azload-ml && python auto_retrain.py >> /var/log/ml-retrain.log 2>&1
+```
+
+### User Feedback Integration
+
+The ML model **DOES** take feedback from user overrides:
+
+1. **Manual Override Logging**: Every user correction is logged via `AIAssistant.correctPrediction()`
+2. **Training Data Export**: Use `AIAssistant.exportTrainingData()` to get user corrections
+3. **Feedback Loop**: User corrections are stored with model context and used for retraining
+4. **Confidence Adjustment**: User-confirmed predictions get higher confidence scores
+
+### Training Data Structure
+
+```json
+{
+  "corrections": [
+    {
+      "id": "uuid",
+      "predictionId": "uuid", 
+      "correctionType": "BUILDING_TYPE" | "MEMBER_TAG",
+      "originalPrediction": {
+        "value": "TRUSS_SINGLE_GABLE",
+        "confidence": 0.85
+      },
+      "userCorrection": {
+        "value": "SINGLE_GABLE_HANGAR",
+        "reasoning": "User specified hangar type"
+      },
+      "modelContext": {
+        "modelType": "STAAD",
+        "geometryData": {...},
+        "unitsSystem": "IMPERIAL"
+      }
+    }
+  ]
+}
+```
+
 ## Production Deployment
 
 ### Full Stack Deployment

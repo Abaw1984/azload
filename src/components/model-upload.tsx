@@ -21,7 +21,7 @@ import {
   Zap,
 } from "lucide-react";
 import { StructuralModel } from "@/types/model";
-import { ModelParserFactory } from "@/lib/model-parser";
+import { UniversalParser } from "@/lib/model-parser";
 import { MCPManager } from "@/lib/mcp-manager";
 
 interface ModelUploadProps {
@@ -82,248 +82,351 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
     e.stopPropagation();
     setDragActive(false);
 
+    console.log("📁 File dropped");
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      console.log("📁 Dropped file details:", {
+        name: e.dataTransfer.files[0].name,
+        size: e.dataTransfer.files[0].size,
+        type: e.dataTransfer.files[0].type,
+      });
       handleUpload(e.dataTransfer.files[0]);
+    } else {
+      console.warn("⚠️ No file dropped or file is invalid");
     }
   }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log("📁 File selected from input");
     if (e.target.files && e.target.files[0]) {
+      console.log("📁 File details:", {
+        name: e.target.files[0].name,
+        size: e.target.files[0].size,
+        type: e.target.files[0].type,
+      });
       handleUpload(e.target.files[0]);
+    } else {
+      console.warn("⚠️ No file selected or file is invalid");
     }
   };
 
   async function handleUpload(file: File) {
-    console.log("🚀 BULLETPROOF UPLOAD WORKFLOW START:", {
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
-      timestamp: new Date().toISOString(),
+    console.log(
+      "🚀 ENHANCED UPLOAD: Starting with memory cleanup and tracking",
+      {
+        fileName: file.name,
+        fileSize: file.size,
+      },
+    );
+
+    // CRITICAL: Clear previous model data to prevent WebGL context loss
+    console.log("🧹 CLEARING PREVIOUS MODEL DATA TO PREVENT MEMORY LEAKS");
+    sessionStorage.removeItem("parsedModel");
+    sessionStorage.removeItem("currentModel");
+    sessionStorage.removeItem("parsedGeometry");
+
+    // Force garbage collection delay
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Set loading state
+    setUploadState({
+      isUploading: true,
+      progress: 10,
+      currentStep: "Validating file and clearing memory...",
+      error: null,
+      warnings: [],
     });
 
-    // Validate file type
-    const fileExtension = file.name
-      .toLowerCase()
-      .substring(file.name.lastIndexOf("."));
-    const supportedExtensions = supportedFormats.map((f) => f.extension);
-
-    if (!supportedExtensions.includes(fileExtension)) {
-      console.error("❌ Unsupported file format:", fileExtension);
-      setUploadState({
-        isUploading: false,
-        progress: 0,
-        currentStep: "",
-        error: `Unsupported file format. Please upload ${supportedExtensions.join(", ")} files.`,
-        warnings: [],
-      });
-      return;
-    }
-
     try {
-      // STEP 1: Start upload with detailed logging
-      console.log("📤 STEP 1: Starting upload process...");
-      setUploadState({
-        isUploading: true,
-        progress: 10,
-        currentStep: "Reading file...",
-        error: null,
-        warnings: [],
-      });
+      // Validate file type
+      const fileExtension = file.name
+        .toLowerCase()
+        .substring(file.name.lastIndexOf("."));
+      const supportedExtensions = supportedFormats.map((f) => f.extension);
 
-      // STEP 2: Parse file with enhanced error handling
-      console.log("🔍 STEP 2: Parsing structural model...");
+      if (!supportedExtensions.includes(fileExtension)) {
+        setUploadState({
+          isUploading: false,
+          progress: 0,
+          currentStep: "",
+          error: `Unsupported file format. Please upload ${supportedExtensions.join(", ")} files.`,
+          warnings: [],
+        });
+        return;
+      }
+
+      // STEP 1: Parse geometry with enhanced validation
+      console.log("📐 STEP 1: Parse geometry with material validation...");
       setUploadState((prev) => ({
         ...prev,
         progress: 30,
-        currentStep: "Parsing structural model...",
+        currentStep: "Parsing geometry and validating materials...",
       }));
 
-      const parsedModel = await ModelParserFactory.parseFile(file);
-      console.log("✅ STEP 2 COMPLETE: Model parsed successfully:", {
-        name: parsedModel.name,
-        nodes: parsedModel.nodes?.length || 0,
-        members: parsedModel.members?.length || 0,
-        units: parsedModel.units,
-        unitsSystem: parsedModel.unitsSystem,
-        hasGeometry: !!parsedModel.geometry,
-        geometryDetails: parsedModel.geometry
-          ? {
-              buildingLength: parsedModel.geometry.buildingLength,
-              buildingWidth: parsedModel.geometry.buildingWidth,
-              totalHeight: parsedModel.geometry.totalHeight,
-            }
-          : null,
+      const parsedModel = await UniversalParser.parseFile(file);
+
+      if (!parsedModel?.nodes?.length || !parsedModel?.members?.length) {
+        throw new Error("Invalid model - no geometry found");
+      }
+
+      console.log("✅ STEP 1 COMPLETE: Geometry parsed", {
+        nodes: parsedModel.nodes.length,
+        members: parsedModel.members.length,
+        materials: parsedModel.materials?.length || 0,
+        sections: parsedModel.sections?.length || 0,
       });
 
-      // CRITICAL: Validate parsed model before proceeding
-      if (!parsedModel || !parsedModel.nodes || !parsedModel.members) {
-        throw new Error("Invalid parsed model - missing nodes or members");
-      }
-
-      if (parsedModel.nodes.length === 0) {
-        throw new Error("Parsed model has no nodes");
-      }
-
-      if (parsedModel.members.length === 0) {
-        throw new Error("Parsed model has no members");
-      }
-
-      // STEP 3: Store in session with verification
-      console.log("💾 STEP 3: Storing model data in sessionStorage...");
+      // STEP 2: Enhanced material validation
+      console.log("🔍 STEP 2: Enhanced material validation...");
       setUploadState((prev) => ({
         ...prev,
         progress: 50,
-        currentStep: "Storing model data...",
+        currentStep: "Validating material assignments...",
       }));
 
-      try {
-        const modelJson = JSON.stringify(parsedModel);
-        sessionStorage.setItem("parsedModel", modelJson);
+      const materialValidation =
+        UniversalParser.validateMaterialAssignments(parsedModel);
+      parsedModel.materialValidation = materialValidation;
 
-        // Verify storage immediately
-        const storedModel = sessionStorage.getItem("parsedModel");
-        if (!storedModel) {
-          throw new Error("Failed to store model in sessionStorage");
-        }
+      const hasMaterials =
+        materialValidation.materialsAssigned &&
+        materialValidation.sectionsAssigned;
+      const hasPartialMaterials =
+        parsedModel.materials && parsedModel.materials.length > 1;
 
-        // Verify we can parse it back
-        const verifyModel = JSON.parse(storedModel);
-        if (!verifyModel.nodes || !verifyModel.members) {
-          throw new Error("Stored model verification failed");
-        }
+      console.log("📊 MATERIAL VALIDATION RESULTS:", {
+        materialsAssigned: materialValidation.materialsAssigned,
+        sectionsAssigned: materialValidation.sectionsAssigned,
+        hasMaterials,
+        hasPartialMaterials,
+        membersWithoutMaterials:
+          materialValidation.membersWithoutMaterials.length,
+        membersWithoutSections:
+          materialValidation.membersWithoutSections.length,
+      });
 
-        console.log(
-          "✅ STEP 3 COMPLETE: Model stored and verified in sessionStorage",
-        );
-      } catch (storageError) {
-        console.error("❌ Storage failed:", storageError);
-        throw new Error(
-          `Failed to store model: ${storageError instanceof Error ? storageError.message : "Unknown storage error"}`,
-        );
-      }
-
-      // STEP 4: Initialize MCP with bulletproof error handling
-      console.log("🤖 STEP 4: Initializing MCP with AI analysis...");
+      // STEP 3: Store and connect to 3D with tracking
+      console.log("💾 STEP 3: Store with upload tracking...");
       setUploadState((prev) => ({
         ...prev,
         progress: 70,
-        currentStep: "Initializing AI analysis...",
+        currentStep: "Storing model and updating counters...",
       }));
 
-      try {
-        console.log("🔄 MCP Manager obtained, starting initialization...");
+      // Update upload counter
+      const currentCount = parseInt(
+        sessionStorage.getItem("uploadCounter") || "0",
+      );
+      const newCount = currentCount + 1;
+      sessionStorage.setItem("uploadCounter", newCount.toString());
 
-        await MCPManager.initializeFromModel(parsedModel);
+      // Track upload details
+      const uploadRecord = {
+        id: crypto.randomUUID(),
+        fileName: file.name,
+        fileSize: file.size,
+        timestamp: new Date().toISOString(),
+        nodes: parsedModel.nodes.length,
+        members: parsedModel.members.length,
+        materials: parsedModel.materials?.length || 0,
+        sections: parsedModel.sections?.length || 0,
+        hasMaterials,
+        uploadNumber: newCount,
+      };
 
-        // Verify MCP was actually initialized
-        const mcpState = MCPManager.getState();
-        console.log("🔍 MCP State after initialization:", {
-          isInitialized: mcpState.isInitialized,
-          hasCurrent: !!mcpState.current,
-          error: mcpState.error,
-          currentId: mcpState.current?.id,
-        });
+      const uploadHistory = JSON.parse(
+        sessionStorage.getItem("uploadHistory") || "[]",
+      );
+      uploadHistory.push(uploadRecord);
+      if (uploadHistory.length > 50)
+        uploadHistory.splice(0, uploadHistory.length - 50); // Keep last 50
+      sessionStorage.setItem("uploadHistory", JSON.stringify(uploadHistory));
 
-        if (!mcpState.isInitialized || !mcpState.current) {
-          throw new Error(
-            `MCP initialization failed: ${mcpState.error || "Unknown MCP error"}`,
-          );
-        }
+      // Store the model
+      sessionStorage.setItem("parsedModel", JSON.stringify(parsedModel));
 
-        console.log("✅ STEP 4 COMPLETE: MCP initialized successfully:", {
-          mcpId: mcpState.current.id,
-          buildingType: mcpState.current.buildingType,
-          confidence:
-            (mcpState.current.buildingTypeConfidence * 100).toFixed(1) + "%",
-          memberTags: mcpState.current.memberTags.length,
-        });
-      } catch (mcpError) {
-        console.error("❌ MCP initialization failed:", mcpError);
-        throw new Error(
-          `AI analysis failed: ${mcpError instanceof Error ? mcpError.message : "Unknown MCP error"}`,
+      // Fire geometry ready event
+      window.dispatchEvent(
+        new CustomEvent("geometryReady", {
+          detail: {
+            model: parsedModel,
+            source: "enhanced-upload",
+            uploadNumber: newCount,
+            hasMaterials,
+            materialValidation,
+          },
+        }),
+      );
+
+      console.log("✅ STEP 3 COMPLETE: Model stored with tracking");
+
+      // STEP 4: ML Analysis (only if materials are assigned)
+      if (hasMaterials) {
+        console.log("🤖 STEP 4: Materials found - initializing ML analysis...");
+        setUploadState((prev) => ({
+          ...prev,
+          progress: 90,
+          currentStep: "Initializing ML analysis and member tagging...",
+        }));
+
+        // Update ML training counter
+        const mlCount = parseInt(
+          sessionStorage.getItem("mlTrainingCount") || "0",
+        );
+        const newMLCount = mlCount + 1;
+        sessionStorage.setItem("mlTrainingCount", newMLCount.toString());
+
+        // Initialize ML in background
+        setTimeout(async () => {
+          try {
+            await MCPManager.initializeFromModel(parsedModel);
+            console.log(
+              "✅ ML analysis complete - member tags should be active",
+            );
+          } catch (mlError) {
+            console.warn(
+              "⚠️ ML analysis failed but model is still usable:",
+              mlError,
+            );
+          }
+        }, 500);
+      } else {
+        console.log("⚠️ STEP 4: No materials - ML analysis skipped");
+      }
+
+      // Complete upload with enhanced feedback
+      const warnings = [];
+      if (!hasMaterials) {
+        warnings.push("⚠️ CRITICAL: No materials assigned to members");
+        warnings.push("• Load calculations are DISABLED");
+        warnings.push("• ML member tagging is DISABLED");
+        warnings.push("• Assign materials in your CAD software and re-upload");
+      }
+      if (materialValidation.membersWithoutMaterials.length > 0) {
+        warnings.push(
+          `${materialValidation.membersWithoutMaterials.length} members missing materials`,
+        );
+      }
+      if (materialValidation.membersWithoutSections.length > 0) {
+        warnings.push(
+          `${materialValidation.membersWithoutSections.length} members missing sections`,
         );
       }
 
-      // STEP 5: Fire events with verification
-      console.log("📡 STEP 5: Firing geometry events...");
-      setUploadState((prev) => ({
-        ...prev,
-        progress: 90,
-        currentStep: "Preparing visualization...",
-      }));
-
-      try {
-        // Fire geometry event with detailed payload
-        const geometryEvent = new CustomEvent("geometryParsed", {
-          detail: {
-            model: parsedModel,
-            timestamp: Date.now(),
-            source: "model-upload",
-          },
-        });
-        window.dispatchEvent(geometryEvent);
-
-        // Also fire a model ready event
-        const readyEvent = new CustomEvent("modelReady", {
-          detail: {
-            modelId: parsedModel.id,
-            timestamp: Date.now(),
-          },
-        });
-        window.dispatchEvent(readyEvent);
-
-        console.log("✅ STEP 5 COMPLETE: Events fired successfully");
-      } catch (eventError) {
-        console.warn("⚠️ Event firing failed (non-critical):", eventError);
-        // Don't fail the entire process for event errors
-      }
-
-      // STEP 6: Complete and switch tab
-      console.log("🎯 STEP 6: Completing upload workflow...");
       setUploadState({
         isUploading: false,
         progress: 100,
         currentStep: "Upload complete!",
         error: null,
-        warnings: [],
+        warnings,
       });
 
-      // Small delay to show completion, then switch tab
+      // Switch to analyze tab
       setTimeout(() => {
-        console.log("✅ STEP 6 COMPLETE: Switching to analyze tab");
-        console.log("🎉 UPLOAD WORKFLOW COMPLETE - ALL SYSTEMS GO!");
         setActiveTab("analyze");
-      }, 1000); // Increased delay to ensure everything is ready
+        console.log("✅ Switched to analyze tab with enhanced tracking");
+      }, 1000);
     } catch (error) {
-      console.error("❌ BULLETPROOF UPLOAD WORKFLOW FAILED:", {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        fileName: file.name,
-        timestamp: new Date().toISOString(),
-      });
-
-      const errorMessage =
-        error instanceof Error ? error.message : "Upload failed";
-
+      console.error("❌ Enhanced upload failed:", error);
       setUploadState({
         isUploading: false,
         progress: 0,
         currentStep: "",
-        error: `Upload failed: ${errorMessage}`,
+        error: error instanceof Error ? error.message : "Upload failed",
         warnings: [],
       });
+    }
+  }
 
-      // Enhanced cleanup on failure
-      console.log("🧹 Cleaning up after failure...");
-      try {
-        sessionStorage.removeItem("parsedModel");
-        sessionStorage.removeItem("currentModel");
-        sessionStorage.removeItem("parsedGeometry");
-        MCPManager.resetMCP();
-        console.log("✅ Cleanup completed");
-      } catch (cleanupError) {
-        console.error("❌ Cleanup failed:", cleanupError);
+  // Store geometry-only model for visualization when materials are missing
+  async function storeGeometryOnlyModel(model: StructuralModel): Promise<void> {
+    try {
+      console.log("💾 Storing geometry-only model for visualization...");
+
+      const geometryData = {
+        id: model.id,
+        name: model.name,
+        type: model.type,
+        units: model.units,
+        unitsSystem: model.unitsSystem,
+        nodes: model.nodes,
+        members: model.members,
+        sections: model.sections || [],
+        materials: model.materials || [],
+        geometry: model.geometry,
+        materialValidation: model.materialValidation,
+        timestamp: Date.now(),
+        status: "geometry_only",
+        loadCalculationsEnabled: false,
+      };
+
+      const geometryJson = JSON.stringify(geometryData);
+
+      // Store with special key to indicate geometry-only mode
+      sessionStorage.setItem("parsedGeometry", geometryJson);
+      sessionStorage.setItem("geometryOnlyMode", "true");
+
+      // Fire geometry-only event
+      const geometryEvent = new CustomEvent("geometryOnlyReady", {
+        detail: {
+          model: geometryData,
+          materialsRequired: true,
+          loadCalculationsDisabled: true,
+        },
+      });
+      window.dispatchEvent(geometryEvent);
+
+      console.log("✅ Geometry-only model stored successfully");
+    } catch (error) {
+      console.error("❌ Failed to store geometry-only model:", error);
+    }
+  }
+
+  // Track model upload for ML training evaluation
+  function trackModelUpload(model: StructuralModel): void {
+    try {
+      const uploadRecord = {
+        id: crypto.randomUUID(),
+        modelId: model.id,
+        modelName: model.name,
+        timestamp: new Date().toISOString(),
+        nodes: model.nodes.length,
+        members: model.members.length,
+        materialsAssigned: model.materialValidation?.materialsAssigned || false,
+        sectionsAssigned: model.materialValidation?.sectionsAssigned || false,
+        fileType: model.type,
+        unitsSystem: model.unitsSystem,
+      };
+
+      // Get existing upload records
+      const existingUploads = JSON.parse(
+        sessionStorage.getItem("modelUploads") || "[]",
+      );
+
+      existingUploads.push(uploadRecord);
+
+      // Keep only last 100 uploads
+      if (existingUploads.length > 100) {
+        existingUploads.splice(0, existingUploads.length - 100);
       }
+
+      sessionStorage.setItem("modelUploads", JSON.stringify(existingUploads));
+
+      // Dispatch upload tracking event
+      window.dispatchEvent(
+        new CustomEvent("modelUploadTracked", {
+          detail: {
+            totalUploads: existingUploads.length,
+            latestUpload: uploadRecord,
+          },
+        }),
+      );
+
+      console.log("📊 Model upload tracked for ML training evaluation", {
+        totalUploads: existingUploads.length,
+        modelId: model.id,
+      });
+    } catch (error) {
+      console.warn("Failed to track model upload:", error);
     }
   }
 
@@ -459,40 +562,39 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
             </div>
           </div>
 
-          {/* Upload Guidelines */}
+          {/* Staged Parsing Guidelines */}
           <Card className="bg-blue-50 border-blue-200">
             <CardContent className="p-4">
               <div className="flex items-start space-x-3">
                 <CheckCircle className="w-5 h-5 text-blue-600 mt-0.5" />
                 <div className="space-y-2">
                   <h4 className="font-medium text-blue-900">
-                    Upload Guidelines
+                    Staged Parsing Workflow
                   </h4>
                   <ul className="text-sm text-blue-800 space-y-1">
+                    <li>
+                      • <strong>Stage 1:</strong> Parse geometry for immediate
+                      3D visualization
+                    </li>
+                    <li>
+                      • <strong>Stage 2:</strong> Validate material assignments
+                      in original file
+                    </li>
+                    <li>
+                      • <strong>Stage 3:</strong> Enable ML API only if
+                      materials are assigned
+                    </li>
                     <li>• Maximum file size: 100 MB</li>
                     <li>
-                      • Ensure model contains complete node coordinates and
-                      member connectivity
+                      • Material properties must be assigned in STAAD.Pro or
+                      SAP2000
                     </li>
                     <li>
-                      • Parser supports both STAAD.Pro V8i and CONNECT Edition
-                      formats
-                    </li>
-                    <li>
-                      • Material properties and section definitions will be
-                      automatically extracted or defaulted
-                    </li>
-                    <li>
-                      • Existing load cases will be preserved and enhanced with
-                      ASCE 7-16 calculations
+                      • Load calculations require complete material definitions
                     </li>
                     <li>
                       • AI analysis works best with well-defined structural
-                      systems and clear member tagging
-                    </li>
-                    <li>
-                      • Files with comments and various formatting styles are
-                      fully supported
+                      systems
                     </li>
                   </ul>
                 </div>

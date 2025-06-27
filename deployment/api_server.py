@@ -26,6 +26,8 @@ model_validator = None
 model_monitor = None
 retraining_status = {"is_retraining": False, "progress": 0, "status": "idle"}
 manual_overrides = []
+user_override_database = []  # Store user corrections for learning
+user_override_database = []  # Store user corrections for learning
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -187,6 +189,24 @@ class RetrainStatusResponse(BaseModel):
     estimated_completion: Optional[str]
     current_stage: Optional[str]
     error: Optional[str]
+
+@app.get("/")
+async def root():
+    """Root endpoint with API information"""
+    return {
+        "message": "Structural ML Classification API",
+        "version": "1.0.0",
+        "status": "operational",
+        "endpoints": {
+            "health": "/health",
+            "model_info": "/model-info",
+            "classify_building": "/classify-building",
+            "classify_members": "/classify-members",
+            "ml_pipeline_status": "/ml-pipeline/status",
+            "documentation": "/docs"
+        },
+        "timestamp": datetime.now().isoformat()
+    }
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -452,6 +472,449 @@ def get_alternative_building_types(features: Dict[str, float], trainer: Ensemble
     except Exception as e:
         print(f"Error getting alternatives: {e}")
         return []
+
+@app.post("/classify-members", response_model=MemberClassificationResponse)
+async def classify_members(request: MemberClassificationRequest):
+    """Classify member tags using ensemble ML models"""
+    if not ml_trainer:
+        raise HTTPException(status_code=503, detail="ML trainer not loaded")
+    
+    try:
+        # Convert Pydantic model to dict
+        model_dict = request.model.dict()
+        
+        # Validate model structure
+        is_valid, errors = model_validator.validate_model_input(model_dict)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid model data: {'; '.join(errors)}")
+        
+        # Extract member features
+        member_features = []
+        nodes = model_dict.get('nodes', [])
+        members = model_dict.get('members', [])
+        geometry = model_dict.get('geometry', {})
+        
+        target_members = members
+        if request.memberIds:
+            target_members = [m for m in members if m['id'] in request.memberIds]
+        
+        for member in target_members:
+            features = feature_extractor.extract_member_features(member, nodes, geometry)
+            if features:
+                member_features.append(features)
+        
+        if not member_features:
+            raise HTTPException(status_code=400, detail="Could not extract member features")
+        
+        # Predict using ensemble models
+        predictions = ml_trainer.predict_member_roles(member_features)
+        
+        # Format response
+        member_tags = {}
+        confidences = {}
+        features_dict = {}
+        
+        for i, (member, (role, confidence)) in enumerate(zip(target_members, predictions)):
+            member_tags[member['id']] = role
+            confidences[member['id']] = float(confidence)
+            features_dict[member['id']] = member_features[i]
+            
+            # Log prediction for monitoring
+            model_monitor.log_prediction(
+                model_type="member_classification",
+                input_features=member_features[i],
+                prediction=role,
+                confidence=confidence
+            )
+        
+        return MemberClassificationResponse(
+            memberTags=member_tags,
+            confidences=confidences,
+            features=features_dict
+        )
+        
+    except Exception as e:
+        logger.error(f"Member classification error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Classification error: {str(e)}")
+
+@app.post("/manual-override")
+async def submit_manual_override(request: ManualOverrideRequest):
+    """Submit manual override for model learning and improvement"""
+    global user_override_database
+    
+    try:
+        # Create override record with comprehensive data
+        override_record = {
+            "override_id": str(uuid.uuid4()),
+            "prediction_id": request.predictionId,
+            "user_id": request.userId or "anonymous",
+            "project_id": request.projectId or "unknown",
+            "correction_type": request.correctionType,
+            "original_prediction": request.originalPrediction,
+            "user_correction": request.userCorrection,
+            "reasoning": request.reasoning or "No reasoning provided",
+            "model_context": request.modelContext or {},
+            "timestamp": datetime.now().isoformat(),
+            "processed": False,
+            "learning_impact": "pending_analysis"
+        }
+        
+        # Store in memory database (in production, use persistent storage)
+        user_override_database.append(override_record)
+        manual_overrides.append(override_record)
+        
+        # Log the override for immediate learning
+        logger.info(f"Manual override received: {request.correctionType} - {request.predictionId}")
+        logger.info(f"Original: {request.originalPrediction}")
+        logger.info(f"Corrected: {request.userCorrection}")
+        logger.info(f"Reasoning: {request.reasoning}")
+        
+        # Analyze learning opportunity
+        learning_analysis = analyze_override_for_learning(override_record)
+        override_record["learning_impact"] = learning_analysis
+        
+        # Trigger background retraining if enough overrides accumulated
+        if len(user_override_database) >= 10:  # Threshold for retraining
+            logger.info(f"Threshold reached ({len(user_override_database)} overrides) - considering retraining")
+            # In production, trigger background retraining task
+        
+        return {
+            "success": True,
+            "override_id": override_record["override_id"],
+            "message": "Manual override recorded successfully",
+            "learning_impact": learning_analysis,
+            "total_overrides": len(user_override_database),
+            "retraining_threshold": 10,
+            "timestamp": override_record["timestamp"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing manual override: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Override processing error: {str(e)}")
+
+@app.get("/learning-status")
+async def get_learning_status():
+    """Get current learning status and override statistics"""
+    try:
+        # Analyze override patterns
+        building_corrections = [o for o in user_override_database if o["correction_type"] == "BUILDING_TYPE"]
+        member_corrections = [o for o in user_override_database if o["correction_type"] == "MEMBER_TAG"]
+        
+        # Calculate learning metrics
+        total_overrides = len(user_override_database)
+        recent_overrides = len([o for o in user_override_database if 
+                              datetime.fromisoformat(o["timestamp"]) > datetime.now().replace(hour=0, minute=0, second=0)])
+        
+        # Identify common correction patterns
+        correction_patterns = analyze_correction_patterns(user_override_database)
+        
+        return {
+            "learning_active": True,
+            "total_overrides": total_overrides,
+            "recent_overrides_today": recent_overrides,
+            "building_type_corrections": len(building_corrections),
+            "member_tag_corrections": len(member_corrections),
+            "correction_patterns": correction_patterns,
+            "retraining_threshold": 10,
+            "ready_for_retraining": total_overrides >= 10,
+            "learning_insights": generate_learning_insights(user_override_database),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting learning status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Learning status error: {str(e)}")
+
+@app.post("/retrain-models")
+async def retrain_models_with_overrides(request: RetrainRequest, background_tasks: BackgroundTasks):
+    """Retrain models incorporating user overrides"""
+    global retraining_status
+    
+    try:
+        if retraining_status["is_retraining"]:
+            raise HTTPException(status_code=409, detail="Retraining already in progress")
+        
+        # Start retraining process
+        retraining_status = {
+            "is_retraining": True,
+            "progress": 0,
+            "status": "starting",
+            "start_time": datetime.now().isoformat()
+        }
+        
+        # Add background task for retraining
+        background_tasks.add_task(
+            retrain_with_user_feedback,
+            request.includeOverrides,
+            request.modelTypes or ["member", "building"],
+            request.hyperparameterTuning
+        )
+        
+        return {
+            "success": True,
+            "message": "Model retraining started with user overrides",
+            "override_count": len(user_override_database),
+            "estimated_duration": "10-15 minutes",
+            "check_status_endpoint": "/retrain-status",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error starting retraining: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Retraining error: {str(e)}")
+
+@app.get("/retrain-status", response_model=RetrainStatusResponse)
+async def get_retrain_status():
+    """Get current retraining status"""
+    return RetrainStatusResponse(**retraining_status)
+
+async def retrain_with_user_feedback(include_overrides: bool, model_types: List[str], hyperparameter_tuning: bool):
+    """Background task for retraining models with user feedback"""
+    global retraining_status, ml_trainer
+    
+    try:
+        retraining_status["status"] = "preparing_data"
+        retraining_status["progress"] = 10
+        
+        # Prepare enhanced training data with user overrides
+        enhanced_data = prepare_enhanced_training_data(user_override_database if include_overrides else [])
+        
+        retraining_status["status"] = "training_models"
+        retraining_status["progress"] = 30
+        
+        # Retrain models
+        new_trainer = EnsembleMLTrainer()
+        
+        if "member" in model_types:
+            retraining_status["current_stage"] = "member_classification"
+            retraining_status["progress"] = 50
+            new_trainer.train_member_classification_ensemble(enhanced_data["member_df"])
+        
+        if "building" in model_types:
+            retraining_status["current_stage"] = "building_classification"
+            retraining_status["progress"] = 70
+            new_trainer.train_global_classification_ensembles(enhanced_data["global_df"])
+        
+        retraining_status["status"] = "saving_models"
+        retraining_status["progress"] = 90
+        
+        # Save new models
+        new_trainer.save_models()
+        
+        # Replace global trainer
+        ml_trainer = new_trainer
+        
+        # Mark overrides as processed
+        for override in user_override_database:
+            override["processed"] = True
+        
+        retraining_status = {
+            "is_retraining": False,
+            "progress": 100,
+            "status": "completed",
+            "completion_time": datetime.now().isoformat()
+        }
+        
+        logger.info("Model retraining completed successfully with user feedback")
+        
+    except Exception as e:
+        logger.error(f"Error during retraining: {str(e)}")
+        retraining_status = {
+            "is_retraining": False,
+            "progress": 0,
+            "status": "error",
+            "error": str(e),
+            "error_time": datetime.now().isoformat()
+        }
+
+def analyze_override_for_learning(override_record: Dict[str, Any]) -> str:
+    """Analyze override for learning opportunities"""
+    try:
+        correction_type = override_record["correction_type"]
+        original = override_record["original_prediction"]
+        corrected = override_record["user_correction"]
+        
+        if correction_type == "BUILDING_TYPE":
+            return f"Building type correction: {original.get('type', 'unknown')} → {corrected.get('type', 'unknown')}"
+        elif correction_type == "MEMBER_TAG":
+            return f"Member tag correction: {original.get('tag', 'unknown')} → {corrected.get('tag', 'unknown')}"
+        else:
+            return f"General correction: {correction_type}"
+            
+    except Exception as e:
+        return f"Analysis error: {str(e)}"
+
+def analyze_correction_patterns(overrides: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Analyze patterns in user corrections"""
+    try:
+        patterns = {
+            "most_corrected_building_types": {},
+            "most_corrected_member_tags": {},
+            "common_mistakes": [],
+            "confidence_threshold_issues": []
+        }
+        
+        for override in overrides:
+            correction_type = override["correction_type"]
+            original = override["original_prediction"]
+            corrected = override["user_correction"]
+            
+            if correction_type == "BUILDING_TYPE":
+                original_type = original.get("type", "unknown")
+                corrected_type = corrected.get("type", "unknown")
+                key = f"{original_type} → {corrected_type}"
+                patterns["most_corrected_building_types"][key] = patterns["most_corrected_building_types"].get(key, 0) + 1
+            
+            elif correction_type == "MEMBER_TAG":
+                original_tag = original.get("tag", "unknown")
+                corrected_tag = corrected.get("tag", "unknown")
+                key = f"{original_tag} → {corrected_tag}"
+                patterns["most_corrected_member_tags"][key] = patterns["most_corrected_member_tags"].get(key, 0) + 1
+        
+        return patterns
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+def generate_learning_insights(overrides: List[Dict[str, Any]]) -> List[str]:
+    """Generate insights from user corrections"""
+    try:
+        insights = []
+        
+        if len(overrides) == 0:
+            return ["No user corrections available yet"]
+        
+        # Analyze correction frequency
+        building_corrections = len([o for o in overrides if o["correction_type"] == "BUILDING_TYPE"])
+        member_corrections = len([o for o in overrides if o["correction_type"] == "MEMBER_TAG"])
+        
+        if building_corrections > member_corrections:
+            insights.append("Building type classification needs improvement")
+        elif member_corrections > building_corrections:
+            insights.append("Member tagging accuracy needs improvement")
+        else:
+            insights.append("Both building and member classification need attention")
+        
+        # Recent activity
+        recent_count = len([o for o in overrides if 
+                          datetime.fromisoformat(o["timestamp"]) > datetime.now().replace(hour=0, minute=0, second=0)])
+        
+        if recent_count > 0:
+            insights.append(f"{recent_count} corrections made today")
+        
+        # Learning readiness
+        if len(overrides) >= 10:
+            insights.append("Ready for model retraining with user feedback")
+        else:
+            insights.append(f"Need {10 - len(overrides)} more corrections for effective retraining")
+        
+        return insights[:5]  # Limit to top 5 insights
+        
+    except Exception as e:
+        return [f"Error generating insights: {str(e)}"]
+
+def prepare_enhanced_training_data(overrides: List[Dict[str, Any]]) -> Dict[str, pd.DataFrame]:
+    """Prepare enhanced training data incorporating user overrides"""
+    try:
+        # Load base training data
+        extractor = StructuralModelFeatureExtractor()
+        base_models = extractor.load_sample_data()
+        global_df, member_df = extractor.prepare_training_data(base_models)
+        
+        # Incorporate user overrides as additional training examples
+        for override in overrides:
+            if override["correction_type"] == "BUILDING_TYPE" and not override.get("processed", False):
+                # Add corrected building type example
+                corrected_type = override["user_correction"].get("type")
+                if corrected_type:
+                    # Create synthetic training example based on override
+                    model_context = override.get("model_context", {})
+                    if model_context:
+                        synthetic_features = extract_features_from_context(model_context)
+                        if synthetic_features:
+                            synthetic_features["building_type"] = corrected_type
+                            global_df = pd.concat([global_df, pd.DataFrame([synthetic_features])], ignore_index=True)
+            
+            elif override["correction_type"] == "MEMBER_TAG" and not override.get("processed", False):
+                # Add corrected member tag example
+                corrected_tag = override["user_correction"].get("tag")
+                if corrected_tag:
+                    model_context = override.get("model_context", {})
+                    if model_context:
+                        synthetic_features = extract_member_features_from_context(model_context)
+                        if synthetic_features:
+                            synthetic_features["member_role"] = corrected_tag
+                            member_df = pd.concat([member_df, pd.DataFrame([synthetic_features])], ignore_index=True)
+        
+        return {"global_df": global_df, "member_df": member_df}
+        
+    except Exception as e:
+        logger.error(f"Error preparing enhanced training data: {str(e)}")
+        # Return base data if enhancement fails
+        extractor = StructuralModelFeatureExtractor()
+        base_models = extractor.load_sample_data()
+        global_df, member_df = extractor.prepare_training_data(base_models)
+        return {"global_df": global_df, "member_df": member_df}
+
+def extract_features_from_context(model_context: Dict[str, Any]) -> Dict[str, float]:
+    """Extract features from model context for synthetic training data"""
+    try:
+        features = {}
+        
+        # Extract basic geometric features
+        if "geometry" in model_context:
+            geometry = model_context["geometry"]
+            features["building_length"] = geometry.get("buildingLength", 0)
+            features["building_width"] = geometry.get("buildingWidth", 0)
+            features["building_height"] = geometry.get("totalHeight", 0)
+            features["eave_height"] = geometry.get("eaveHeight", 0)
+            features["roof_slope"] = geometry.get("roofSlope", 0)
+        
+        # Extract member counts
+        if "members" in model_context:
+            members = model_context["members"]
+            features["member_count"] = len(members)
+            
+            # Count member types
+            member_types = [m.get("type", "UNKNOWN") for m in members]
+            features["column_count"] = member_types.count("COLUMN")
+            features["beam_count"] = member_types.count("BEAM")
+            features["brace_count"] = member_types.count("BRACE")
+        
+        # Extract node count
+        if "nodes" in model_context:
+            features["node_count"] = len(model_context["nodes"])
+        
+        return features if features else None
+        
+    except Exception as e:
+        logger.error(f"Error extracting features from context: {str(e)}")
+        return None
+
+def extract_member_features_from_context(model_context: Dict[str, Any]) -> Dict[str, float]:
+    """Extract member features from model context for synthetic training data"""
+    try:
+        # This would extract member-specific features from the context
+        # Implementation depends on the structure of model_context
+        features = {}
+        
+        # Basic member properties
+        if "member" in model_context:
+            member = model_context["member"]
+            features["member_length"] = member.get("length", 0)
+            features["member_angle"] = member.get("angle", 0)
+        
+        # Add default values for required features
+        features["angle_from_horizontal"] = features.get("member_angle", 0)
+        features["relative_elevation"] = 0.5  # Default middle elevation
+        features["is_vertical"] = 1.0 if features.get("member_angle", 0) > 75 else 0.0
+        features["is_horizontal"] = 1.0 if features.get("member_angle", 0) < 15 else 0.0
+        
+        return features if features else None
+        
+    except Exception as e:
+        logger.error(f"Error extracting member features from context: {str(e)}")
+        return None
 
 if __name__ == "__main__":
     uvicorn.run(

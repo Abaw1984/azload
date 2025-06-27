@@ -992,10 +992,24 @@ async def internal_error_handler(request, exc):
     return {"error": "Internal server error", "detail": "Please contact support"}
 
 if __name__ == "__main__":
+    # Try port 8000 first, then fallback to 8001 if busy
+    import socket
+    
+    def is_port_available(port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(('0.0.0.0', port))
+                return True
+            except OSError:
+                return False
+    
+    port = 8000 if is_port_available(8000) else 8001
+    
+    print(f"Starting API server on port {port}...")
     uvicorn.run(
         "api_server:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=True,
         log_level="info",
         access_log=True

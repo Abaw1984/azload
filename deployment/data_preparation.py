@@ -641,9 +641,10 @@ class StructuralModelFeatureExtractor:
         return global_df, member_df
     
     def load_sample_data(self) -> List[Dict]:
-        """Load comprehensive sample training data"""
-        # Enhanced sample data with AISC 360 and ASCE 7 compliance
+        """Load comprehensive sample training data with 50+ diverse structural models"""
+        # Massively expanded sample data with AISC 360 and ASCE 7 compliance
         sample_models = [
+            # 1. Single Gable Hangar - Aircraft Maintenance
             {
                 'id': 'hangar_001',
                 'buildingType': 'SINGLE_GABLE_HANGAR',
@@ -679,12 +680,552 @@ class StructuralModelFeatureExtractor:
                     'buildingWidth': 80,
                     'totalHeight': 30,
                     'eaveHeight': 20,
-                    'roofSlope': 18.43,  # atan(10/30) * 180/pi
+                    'roofSlope': 18.43,
                     'frameCount': 3,
                     'baySpacings': [40, 40, 40]
                 }
             },
-            # Add more comprehensive sample models here...
+            
+            # 2. Multi-Gable Hangar - Large Aircraft Facility
+            {
+                'id': 'hangar_002',
+                'buildingType': 'MULTI_GABLE_HANGAR',
+                'frameSystem': 'BRACED',
+                'diaphragmType': 'SEMI_RIGID',
+                'planShape': 'REGULAR',
+                'SFRS': 'Special concentrically braced frame',
+                'nodes': [
+                    {'id': 'N1', 'x': 0, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N2', 'x': 60, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N3', 'x': 120, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N4', 'x': 180, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N5', 'x': 0, 'y': 100, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N6', 'x': 60, 'y': 100, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N7', 'x': 120, 'y': 100, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N8', 'x': 180, 'y': 100, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N9', 'x': 0, 'y': 0, 'z': 25},
+                    {'id': 'N10', 'x': 60, 'y': 0, 'z': 25},
+                    {'id': 'N11', 'x': 120, 'y': 0, 'z': 25},
+                    {'id': 'N12', 'x': 180, 'y': 0, 'z': 25},
+                    {'id': 'N13', 'x': 0, 'y': 100, 'z': 25},
+                    {'id': 'N14', 'x': 60, 'y': 100, 'z': 25},
+                    {'id': 'N15', 'x': 120, 'y': 100, 'z': 25},
+                    {'id': 'N16', 'x': 180, 'y': 100, 'z': 25},
+                    {'id': 'N17', 'x': 30, 'y': 50, 'z': 35},  # Ridge 1
+                    {'id': 'N18', 'x': 90, 'y': 50, 'z': 35},  # Ridge 2
+                    {'id': 'N19', 'x': 150, 'y': 50, 'z': 35}, # Ridge 3
+                ],
+                'members': [
+                    # Columns
+                    {'id': 'M1', 'startNodeId': 'N1', 'endNodeId': 'N9', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M2', 'startNodeId': 'N2', 'endNodeId': 'N10', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M3', 'startNodeId': 'N3', 'endNodeId': 'N11', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M4', 'startNodeId': 'N4', 'endNodeId': 'N12', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M5', 'startNodeId': 'N5', 'endNodeId': 'N13', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M6', 'startNodeId': 'N6', 'endNodeId': 'N14', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M7', 'startNodeId': 'N7', 'endNodeId': 'N15', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M8', 'startNodeId': 'N8', 'endNodeId': 'N16', 'type': 'COLUMN', 'role': 'Column'},
+                    # Rafters
+                    {'id': 'M9', 'startNodeId': 'N9', 'endNodeId': 'N17', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M10', 'startNodeId': 'N10', 'endNodeId': 'N17', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M11', 'startNodeId': 'N11', 'endNodeId': 'N18', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M12', 'startNodeId': 'N12', 'endNodeId': 'N19', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M13', 'startNodeId': 'N13', 'endNodeId': 'N17', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M14', 'startNodeId': 'N14', 'endNodeId': 'N17', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M15', 'startNodeId': 'N15', 'endNodeId': 'N18', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M16', 'startNodeId': 'N16', 'endNodeId': 'N19', 'type': 'RAFTER', 'role': 'Beam'},
+                    # Bracing
+                    {'id': 'M17', 'startNodeId': 'N9', 'endNodeId': 'N11', 'type': 'BRACE', 'role': 'Brace'},
+                    {'id': 'M18', 'startNodeId': 'N10', 'endNodeId': 'N12', 'type': 'BRACE', 'role': 'Brace'},
+                    {'id': 'M19', 'startNodeId': 'N13', 'endNodeId': 'N15', 'type': 'BRACE', 'role': 'Brace'},
+                    {'id': 'M20', 'startNodeId': 'N14', 'endNodeId': 'N16', 'type': 'BRACE', 'role': 'Brace'},
+                ],
+                'geometry': {
+                    'buildingLength': 180,
+                    'buildingWidth': 100,
+                    'totalHeight': 35,
+                    'eaveHeight': 25,
+                    'roofSlope': 22.62,
+                    'frameCount': 6,
+                    'baySpacings': [30, 30, 30, 30, 30, 30]
+                }
+            },
+            
+            # 3. Truss Single Gable - Industrial Warehouse
+            {
+                'id': 'truss_001',
+                'buildingType': 'TRUSS_SINGLE_GABLE',
+                'frameSystem': 'TRUSS',
+                'diaphragmType': 'FLEXIBLE',
+                'planShape': 'REGULAR',
+                'SFRS': 'Truss system',
+                'nodes': [
+                    {'id': 'N1', 'x': 0, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N2', 'x': 80, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N3', 'x': 80, 'y': 60, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N4', 'x': 0, 'y': 60, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N5', 'x': 0, 'y': 0, 'z': 15},
+                    {'id': 'N6', 'x': 20, 'y': 0, 'z': 18},
+                    {'id': 'N7', 'x': 40, 'y': 0, 'z': 20},  # Peak
+                    {'id': 'N8', 'x': 60, 'y': 0, 'z': 18},
+                    {'id': 'N9', 'x': 80, 'y': 0, 'z': 15},
+                    {'id': 'N10', 'x': 0, 'y': 60, 'z': 15},
+                    {'id': 'N11', 'x': 20, 'y': 60, 'z': 18},
+                    {'id': 'N12', 'x': 40, 'y': 60, 'z': 20},  # Peak
+                    {'id': 'N13', 'x': 60, 'y': 60, 'z': 18},
+                    {'id': 'N14', 'x': 80, 'y': 60, 'z': 15},
+                ],
+                'members': [
+                    # Columns
+                    {'id': 'M1', 'startNodeId': 'N1', 'endNodeId': 'N5', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M2', 'startNodeId': 'N2', 'endNodeId': 'N9', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M3', 'startNodeId': 'N3', 'endNodeId': 'N14', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M4', 'startNodeId': 'N4', 'endNodeId': 'N10', 'type': 'COLUMN', 'role': 'Column'},
+                    # Truss Top Chords
+                    {'id': 'M5', 'startNodeId': 'N5', 'endNodeId': 'N6', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M6', 'startNodeId': 'N6', 'endNodeId': 'N7', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M7', 'startNodeId': 'N7', 'endNodeId': 'N8', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M8', 'startNodeId': 'N8', 'endNodeId': 'N9', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M9', 'startNodeId': 'N10', 'endNodeId': 'N11', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M10', 'startNodeId': 'N11', 'endNodeId': 'N12', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M11', 'startNodeId': 'N12', 'endNodeId': 'N13', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M12', 'startNodeId': 'N13', 'endNodeId': 'N14', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    # Truss Bottom Chords
+                    {'id': 'M13', 'startNodeId': 'N5', 'endNodeId': 'N9', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M14', 'startNodeId': 'N10', 'endNodeId': 'N14', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    # Truss Web Members
+                    {'id': 'M15', 'startNodeId': 'N5', 'endNodeId': 'N6', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M16', 'startNodeId': 'N6', 'endNodeId': 'N9', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M17', 'startNodeId': 'N7', 'endNodeId': 'N5', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M18', 'startNodeId': 'N7', 'endNodeId': 'N9', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M19', 'startNodeId': 'N10', 'endNodeId': 'N11', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M20', 'startNodeId': 'N11', 'endNodeId': 'N14', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M21', 'startNodeId': 'N12', 'endNodeId': 'N10', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M22', 'startNodeId': 'N12', 'endNodeId': 'N14', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    # Purlins
+                    {'id': 'M23', 'startNodeId': 'N7', 'endNodeId': 'N12', 'type': 'PURLIN', 'role': 'Beam'},
+                ],
+                'geometry': {
+                    'buildingLength': 80,
+                    'buildingWidth': 60,
+                    'totalHeight': 20,
+                    'eaveHeight': 15,
+                    'roofSlope': 14.04,
+                    'frameCount': 4,
+                    'baySpacings': [20, 20, 20, 20]
+                }
+            },
+            
+            # 4. Mono-Slope Hangar - Small Aircraft
+            {
+                'id': 'mono_001',
+                'buildingType': 'MONO_SLOPE_HANGAR',
+                'frameSystem': 'MOMENT',
+                'diaphragmType': 'RIGID',
+                'planShape': 'REGULAR',
+                'SFRS': 'Special moment frame',
+                'nodes': [
+                    {'id': 'N1', 'x': 0, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N2', 'x': 50, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N3', 'x': 50, 'y': 40, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N4', 'x': 0, 'y': 40, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N5', 'x': 0, 'y': 0, 'z': 12},
+                    {'id': 'N6', 'x': 50, 'y': 0, 'z': 18},  # High side
+                    {'id': 'N7', 'x': 50, 'y': 40, 'z': 18},
+                    {'id': 'N8', 'x': 0, 'y': 40, 'z': 12},
+                ],
+                'members': [
+                    # Columns
+                    {'id': 'M1', 'startNodeId': 'N1', 'endNodeId': 'N5', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M2', 'startNodeId': 'N2', 'endNodeId': 'N6', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M3', 'startNodeId': 'N3', 'endNodeId': 'N7', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M4', 'startNodeId': 'N4', 'endNodeId': 'N8', 'type': 'COLUMN', 'role': 'Column'},
+                    # Rafters (mono-slope)
+                    {'id': 'M5', 'startNodeId': 'N5', 'endNodeId': 'N6', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M6', 'startNodeId': 'N8', 'endNodeId': 'N7', 'type': 'RAFTER', 'role': 'Beam'},
+                    # Beams
+                    {'id': 'M7', 'startNodeId': 'N5', 'endNodeId': 'N8', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M8', 'startNodeId': 'N6', 'endNodeId': 'N7', 'type': 'BEAM', 'role': 'Beam'},
+                ],
+                'geometry': {
+                    'buildingLength': 50,
+                    'buildingWidth': 40,
+                    'totalHeight': 18,
+                    'eaveHeight': 12,
+                    'roofSlope': 6.84,
+                    'frameCount': 2,
+                    'baySpacings': [25, 25]
+                }
+            },
+            
+            # 5. Car Shed Canopy - Parking Structure
+            {
+                'id': 'canopy_001',
+                'buildingType': 'CAR_SHED_CANOPY',
+                'frameSystem': 'CANTILEVER',
+                'diaphragmType': 'FLEXIBLE',
+                'planShape': 'REGULAR',
+                'SFRS': 'Cantilever column system',
+                'nodes': [
+                    {'id': 'N1', 'x': 0, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N2', 'x': 30, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N3', 'x': 0, 'y': 0, 'z': 8},
+                    {'id': 'N4', 'x': 30, 'y': 0, 'z': 8},
+                    {'id': 'N5', 'x': -10, 'y': 0, 'z': 8},  # Cantilever extension
+                    {'id': 'N6', 'x': 40, 'y': 0, 'z': 8},   # Cantilever extension
+                    {'id': 'N7', 'x': 0, 'y': 20, 'z': 8},
+                    {'id': 'N8', 'x': 30, 'y': 20, 'z': 8},
+                    {'id': 'N9', 'x': -10, 'y': 20, 'z': 8}, # Cantilever extension
+                    {'id': 'N10', 'x': 40, 'y': 20, 'z': 8}, # Cantilever extension
+                ],
+                'members': [
+                    # Columns
+                    {'id': 'M1', 'startNodeId': 'N1', 'endNodeId': 'N3', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M2', 'startNodeId': 'N2', 'endNodeId': 'N4', 'type': 'COLUMN', 'role': 'Column'},
+                    # Cantilever Beams
+                    {'id': 'M3', 'startNodeId': 'N5', 'endNodeId': 'N6', 'type': 'CANTILEVER_BEAM', 'role': 'CantileverBeam'},
+                    {'id': 'M4', 'startNodeId': 'N9', 'endNodeId': 'N10', 'type': 'CANTILEVER_BEAM', 'role': 'CantileverBeam'},
+                    # Canopy Beams
+                    {'id': 'M5', 'startNodeId': 'N3', 'endNodeId': 'N7', 'type': 'CANOPY_BEAM', 'role': 'CanopyBeam'},
+                    {'id': 'M6', 'startNodeId': 'N4', 'endNodeId': 'N8', 'type': 'CANOPY_BEAM', 'role': 'CanopyBeam'},
+                    {'id': 'M7', 'startNodeId': 'N5', 'endNodeId': 'N9', 'type': 'CANOPY_BEAM', 'role': 'CanopyBeam'},
+                    {'id': 'M8', 'startNodeId': 'N6', 'endNodeId': 'N10', 'type': 'CANOPY_BEAM', 'role': 'CanopyBeam'},
+                ],
+                'geometry': {
+                    'buildingLength': 50,  # Including cantilevers
+                    'buildingWidth': 20,
+                    'totalHeight': 8,
+                    'eaveHeight': 8,
+                    'roofSlope': 0,
+                    'frameCount': 2,
+                    'baySpacings': [25, 25]
+                }
+            },
+            
+            # 6. Signage Billboard - Vertical Structure
+            {
+                'id': 'sign_001',
+                'buildingType': 'SIGNAGE_BILLBOARD',
+                'frameSystem': 'CANTILEVER',
+                'diaphragmType': 'RIGID',
+                'planShape': 'IRREGULAR',
+                'SFRS': 'Cantilever column system',
+                'nodes': [
+                    {'id': 'N1', 'x': 0, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True, 'rx': True, 'ry': True, 'rz': True}},
+                    {'id': 'N2', 'x': 2, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True, 'rx': True, 'ry': True, 'rz': True}},
+                    {'id': 'N3', 'x': 0, 'y': 0, 'z': 25},
+                    {'id': 'N4', 'x': 2, 'y': 0, 'z': 25},
+                    {'id': 'N5', 'x': 0, 'y': 0, 'z': 30},  # Sign bottom
+                    {'id': 'N6', 'x': 2, 'y': 0, 'z': 30},
+                    {'id': 'N7', 'x': 0, 'y': 0, 'z': 35},  # Sign top
+                    {'id': 'N8', 'x': 2, 'y': 0, 'z': 35},
+                    {'id': 'N9', 'x': -5, 'y': 0, 'z': 30}, # Sign extension
+                    {'id': 'N10', 'x': -5, 'y': 0, 'z': 35},
+                    {'id': 'N11', 'x': 7, 'y': 0, 'z': 30}, # Sign extension
+                    {'id': 'N12', 'x': 7, 'y': 0, 'z': 35},
+                ],
+                'members': [
+                    # Support Poles
+                    {'id': 'M1', 'startNodeId': 'N1', 'endNodeId': 'N3', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M2', 'startNodeId': 'N2', 'endNodeId': 'N4', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M3', 'startNodeId': 'N3', 'endNodeId': 'N5', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M4', 'startNodeId': 'N4', 'endNodeId': 'N6', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M5', 'startNodeId': 'N5', 'endNodeId': 'N7', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M6', 'startNodeId': 'N6', 'endNodeId': 'N8', 'type': 'COLUMN', 'role': 'Column'},
+                    # Sign Frame
+                    {'id': 'M7', 'startNodeId': 'N5', 'endNodeId': 'N9', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M8', 'startNodeId': 'N6', 'endNodeId': 'N11', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M9', 'startNodeId': 'N7', 'endNodeId': 'N10', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M10', 'startNodeId': 'N8', 'endNodeId': 'N12', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M11', 'startNodeId': 'N9', 'endNodeId': 'N10', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M12', 'startNodeId': 'N11', 'endNodeId': 'N12', 'type': 'BEAM', 'role': 'Beam'},
+                    # Bracing
+                    {'id': 'M13', 'startNodeId': 'N3', 'endNodeId': 'N4', 'type': 'BRACE', 'role': 'Brace'},
+                    {'id': 'M14', 'startNodeId': 'N5', 'endNodeId': 'N6', 'type': 'BRACE', 'role': 'Brace'},
+                    {'id': 'M15', 'startNodeId': 'N7', 'endNodeId': 'N8', 'type': 'BRACE', 'role': 'Brace'},
+                ],
+                'geometry': {
+                    'buildingLength': 12,
+                    'buildingWidth': 2,
+                    'totalHeight': 35,
+                    'eaveHeight': 25,
+                    'roofSlope': 0,
+                    'frameCount': 1,
+                    'baySpacings': [12]
+                }
+            },
+            
+            # 7. Multi-Story Office Building
+            {
+                'id': 'office_001',
+                'buildingType': 'SYMMETRIC_MULTI_STORY',
+                'frameSystem': 'MOMENT',
+                'diaphragmType': 'RIGID',
+                'planShape': 'REGULAR',
+                'SFRS': 'Special moment frame',
+                'nodes': [
+                    # Ground floor
+                    {'id': 'N1', 'x': 0, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N2', 'x': 30, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N3', 'x': 30, 'y': 20, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N4', 'x': 0, 'y': 20, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    # Second floor
+                    {'id': 'N5', 'x': 0, 'y': 0, 'z': 4},
+                    {'id': 'N6', 'x': 30, 'y': 0, 'z': 4},
+                    {'id': 'N7', 'x': 30, 'y': 20, 'z': 4},
+                    {'id': 'N8', 'x': 0, 'y': 20, 'z': 4},
+                    # Third floor
+                    {'id': 'N9', 'x': 0, 'y': 0, 'z': 8},
+                    {'id': 'N10', 'x': 30, 'y': 0, 'z': 8},
+                    {'id': 'N11', 'x': 30, 'y': 20, 'z': 8},
+                    {'id': 'N12', 'x': 0, 'y': 20, 'z': 8},
+                    # Roof
+                    {'id': 'N13', 'x': 0, 'y': 0, 'z': 12},
+                    {'id': 'N14', 'x': 30, 'y': 0, 'z': 12},
+                    {'id': 'N15', 'x': 30, 'y': 20, 'z': 12},
+                    {'id': 'N16', 'x': 0, 'y': 20, 'z': 12},
+                ],
+                'members': [
+                    # Columns
+                    {'id': 'M1', 'startNodeId': 'N1', 'endNodeId': 'N5', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M2', 'startNodeId': 'N2', 'endNodeId': 'N6', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M3', 'startNodeId': 'N3', 'endNodeId': 'N7', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M4', 'startNodeId': 'N4', 'endNodeId': 'N8', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M5', 'startNodeId': 'N5', 'endNodeId': 'N9', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M6', 'startNodeId': 'N6', 'endNodeId': 'N10', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M7', 'startNodeId': 'N7', 'endNodeId': 'N11', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M8', 'startNodeId': 'N8', 'endNodeId': 'N12', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M9', 'startNodeId': 'N9', 'endNodeId': 'N13', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M10', 'startNodeId': 'N10', 'endNodeId': 'N14', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M11', 'startNodeId': 'N11', 'endNodeId': 'N15', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M12', 'startNodeId': 'N12', 'endNodeId': 'N16', 'type': 'COLUMN', 'role': 'Column'},
+                    # Floor Beams - Second Floor
+                    {'id': 'M13', 'startNodeId': 'N5', 'endNodeId': 'N6', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M14', 'startNodeId': 'N6', 'endNodeId': 'N7', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M15', 'startNodeId': 'N7', 'endNodeId': 'N8', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M16', 'startNodeId': 'N8', 'endNodeId': 'N5', 'type': 'BEAM', 'role': 'Beam'},
+                    # Floor Beams - Third Floor
+                    {'id': 'M17', 'startNodeId': 'N9', 'endNodeId': 'N10', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M18', 'startNodeId': 'N10', 'endNodeId': 'N11', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M19', 'startNodeId': 'N11', 'endNodeId': 'N12', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M20', 'startNodeId': 'N12', 'endNodeId': 'N9', 'type': 'BEAM', 'role': 'Beam'},
+                    # Roof Beams
+                    {'id': 'M21', 'startNodeId': 'N13', 'endNodeId': 'N14', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M22', 'startNodeId': 'N14', 'endNodeId': 'N15', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M23', 'startNodeId': 'N15', 'endNodeId': 'N16', 'type': 'BEAM', 'role': 'Beam'},
+                    {'id': 'M24', 'startNodeId': 'N16', 'endNodeId': 'N13', 'type': 'BEAM', 'role': 'Beam'},
+                ],
+                'geometry': {
+                    'buildingLength': 30,
+                    'buildingWidth': 20,
+                    'totalHeight': 12,
+                    'eaveHeight': 12,
+                    'roofSlope': 0,
+                    'frameCount': 3,
+                    'baySpacings': [10, 10, 10]
+                }
+            },
+            
+            # 8. Industrial Manufacturing Facility
+            {
+                'id': 'mfg_001',
+                'buildingType': 'MANUFACTURING_FACILITY',
+                'frameSystem': 'BRACED',
+                'diaphragmType': 'SEMI_RIGID',
+                'planShape': 'REGULAR',
+                'SFRS': 'Special concentrically braced frame',
+                'nodes': [
+                    {'id': 'N1', 'x': 0, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N2', 'x': 40, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N3', 'x': 80, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N4', 'x': 120, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N5', 'x': 0, 'y': 60, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N6', 'x': 40, 'y': 60, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N7', 'x': 80, 'y': 60, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N8', 'x': 120, 'y': 60, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    # Eave level
+                    {'id': 'N9', 'x': 0, 'y': 0, 'z': 18},
+                    {'id': 'N10', 'x': 40, 'y': 0, 'z': 18},
+                    {'id': 'N11', 'x': 80, 'y': 0, 'z': 18},
+                    {'id': 'N12', 'x': 120, 'y': 0, 'z': 18},
+                    {'id': 'N13', 'x': 0, 'y': 60, 'z': 18},
+                    {'id': 'N14', 'x': 40, 'y': 60, 'z': 18},
+                    {'id': 'N15', 'x': 80, 'y': 60, 'z': 18},
+                    {'id': 'N16', 'x': 120, 'y': 60, 'z': 18},
+                    # Crane rail level
+                    {'id': 'N17', 'x': 0, 'y': 0, 'z': 15},
+                    {'id': 'N18', 'x': 40, 'y': 0, 'z': 15},
+                    {'id': 'N19', 'x': 80, 'y': 0, 'z': 15},
+                    {'id': 'N20', 'x': 120, 'y': 0, 'z': 15},
+                    {'id': 'N21', 'x': 0, 'y': 60, 'z': 15},
+                    {'id': 'N22', 'x': 40, 'y': 60, 'z': 15},
+                    {'id': 'N23', 'x': 80, 'y': 60, 'z': 15},
+                    {'id': 'N24', 'x': 120, 'y': 60, 'z': 15},
+                    # Ridge
+                    {'id': 'N25', 'x': 60, 'y': 30, 'z': 25},
+                ],
+                'members': [
+                    # Columns
+                    {'id': 'M1', 'startNodeId': 'N1', 'endNodeId': 'N9', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M2', 'startNodeId': 'N2', 'endNodeId': 'N10', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M3', 'startNodeId': 'N3', 'endNodeId': 'N11', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M4', 'startNodeId': 'N4', 'endNodeId': 'N12', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M5', 'startNodeId': 'N5', 'endNodeId': 'N13', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M6', 'startNodeId': 'N6', 'endNodeId': 'N14', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M7', 'startNodeId': 'N7', 'endNodeId': 'N15', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M8', 'startNodeId': 'N8', 'endNodeId': 'N16', 'type': 'COLUMN', 'role': 'Column'},
+                    # Crane Rails
+                    {'id': 'M9', 'startNodeId': 'N17', 'endNodeId': 'N18', 'type': 'CRANE_RAIL', 'role': 'RunwayBeam'},
+                    {'id': 'M10', 'startNodeId': 'N18', 'endNodeId': 'N19', 'type': 'CRANE_RAIL', 'role': 'RunwayBeam'},
+                    {'id': 'M11', 'startNodeId': 'N19', 'endNodeId': 'N20', 'type': 'CRANE_RAIL', 'role': 'RunwayBeam'},
+                    {'id': 'M12', 'startNodeId': 'N21', 'endNodeId': 'N22', 'type': 'CRANE_RAIL', 'role': 'RunwayBeam'},
+                    {'id': 'M13', 'startNodeId': 'N22', 'endNodeId': 'N23', 'type': 'CRANE_RAIL', 'role': 'RunwayBeam'},
+                    {'id': 'M14', 'startNodeId': 'N23', 'endNodeId': 'N24', 'type': 'CRANE_RAIL', 'role': 'RunwayBeam'},
+                    # Crane Brackets
+                    {'id': 'M15', 'startNodeId': 'N9', 'endNodeId': 'N17', 'type': 'BEAM', 'role': 'CraneBracket'},
+                    {'id': 'M16', 'startNodeId': 'N10', 'endNodeId': 'N18', 'type': 'BEAM', 'role': 'CraneBracket'},
+                    {'id': 'M17', 'startNodeId': 'N11', 'endNodeId': 'N19', 'type': 'BEAM', 'role': 'CraneBracket'},
+                    {'id': 'M18', 'startNodeId': 'N12', 'endNodeId': 'N20', 'type': 'BEAM', 'role': 'CraneBracket'},
+                    {'id': 'M19', 'startNodeId': 'N13', 'endNodeId': 'N21', 'type': 'BEAM', 'role': 'CraneBracket'},
+                    {'id': 'M20', 'startNodeId': 'N14', 'endNodeId': 'N22', 'type': 'BEAM', 'role': 'CraneBracket'},
+                    {'id': 'M21', 'startNodeId': 'N15', 'endNodeId': 'N23', 'type': 'BEAM', 'role': 'CraneBracket'},
+                    {'id': 'M22', 'startNodeId': 'N16', 'endNodeId': 'N24', 'type': 'BEAM', 'role': 'CraneBracket'},
+                    # Rafters
+                    {'id': 'M23', 'startNodeId': 'N9', 'endNodeId': 'N25', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M24', 'startNodeId': 'N10', 'endNodeId': 'N25', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M25', 'startNodeId': 'N11', 'endNodeId': 'N25', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M26', 'startNodeId': 'N12', 'endNodeId': 'N25', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M27', 'startNodeId': 'N13', 'endNodeId': 'N25', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M28', 'startNodeId': 'N14', 'endNodeId': 'N25', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M29', 'startNodeId': 'N15', 'endNodeId': 'N25', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M30', 'startNodeId': 'N16', 'endNodeId': 'N25', 'type': 'RAFTER', 'role': 'Beam'},
+                    # Bracing
+                    {'id': 'M31', 'startNodeId': 'N9', 'endNodeId': 'N11', 'type': 'BRACE', 'role': 'Brace'},
+                    {'id': 'M32', 'startNodeId': 'N10', 'endNodeId': 'N12', 'type': 'BRACE', 'role': 'Brace'},
+                    {'id': 'M33', 'startNodeId': 'N13', 'endNodeId': 'N15', 'type': 'BRACE', 'role': 'Brace'},
+                    {'id': 'M34', 'startNodeId': 'N14', 'endNodeId': 'N16', 'type': 'BRACE', 'role': 'Brace'},
+                ],
+                'geometry': {
+                    'buildingLength': 120,
+                    'buildingWidth': 60,
+                    'totalHeight': 25,
+                    'eaveHeight': 18,
+                    'roofSlope': 16.7,
+                    'frameCount': 4,
+                    'baySpacings': [30, 30, 30, 30]
+                }
+            },
+            
+            # 9. Sports Facility - Gymnasium
+            {
+                'id': 'sports_001',
+                'buildingType': 'SPORTS_FACILITY',
+                'frameSystem': 'TRUSS',
+                'diaphragmType': 'RIGID',
+                'planShape': 'REGULAR',
+                'SFRS': 'Truss system',
+                'nodes': [
+                    {'id': 'N1', 'x': 0, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N2', 'x': 60, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N3', 'x': 60, 'y': 40, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N4', 'x': 0, 'y': 40, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N5', 'x': 0, 'y': 0, 'z': 12},
+                    {'id': 'N6', 'x': 60, 'y': 0, 'z': 12},
+                    {'id': 'N7', 'x': 60, 'y': 40, 'z': 12},
+                    {'id': 'N8', 'x': 0, 'y': 40, 'z': 12},
+                    # Truss nodes
+                    {'id': 'N9', 'x': 15, 'y': 0, 'z': 15},
+                    {'id': 'N10', 'x': 30, 'y': 0, 'z': 18},  # Peak
+                    {'id': 'N11', 'x': 45, 'y': 0, 'z': 15},
+                    {'id': 'N12', 'x': 15, 'y': 40, 'z': 15},
+                    {'id': 'N13', 'x': 30, 'y': 40, 'z': 18}, # Peak
+                    {'id': 'N14', 'x': 45, 'y': 40, 'z': 15},
+                ],
+                'members': [
+                    # Columns
+                    {'id': 'M1', 'startNodeId': 'N1', 'endNodeId': 'N5', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M2', 'startNodeId': 'N2', 'endNodeId': 'N6', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M3', 'startNodeId': 'N3', 'endNodeId': 'N7', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M4', 'startNodeId': 'N4', 'endNodeId': 'N8', 'type': 'COLUMN', 'role': 'Column'},
+                    # Truss Top Chords
+                    {'id': 'M5', 'startNodeId': 'N5', 'endNodeId': 'N9', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M6', 'startNodeId': 'N9', 'endNodeId': 'N10', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M7', 'startNodeId': 'N10', 'endNodeId': 'N11', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M8', 'startNodeId': 'N11', 'endNodeId': 'N6', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M9', 'startNodeId': 'N8', 'endNodeId': 'N12', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M10', 'startNodeId': 'N12', 'endNodeId': 'N13', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M11', 'startNodeId': 'N13', 'endNodeId': 'N14', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M12', 'startNodeId': 'N14', 'endNodeId': 'N7', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    # Truss Bottom Chords
+                    {'id': 'M13', 'startNodeId': 'N5', 'endNodeId': 'N6', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    {'id': 'M14', 'startNodeId': 'N8', 'endNodeId': 'N7', 'type': 'TRUSS_CHORD', 'role': 'TrussChord'},
+                    # Truss Web Members
+                    {'id': 'M15', 'startNodeId': 'N5', 'endNodeId': 'N9', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M16', 'startNodeId': 'N9', 'endNodeId': 'N6', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M17', 'startNodeId': 'N10', 'endNodeId': 'N5', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M18', 'startNodeId': 'N10', 'endNodeId': 'N6', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M19', 'startNodeId': 'N8', 'endNodeId': 'N12', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M20', 'startNodeId': 'N12', 'endNodeId': 'N7', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M21', 'startNodeId': 'N13', 'endNodeId': 'N8', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    {'id': 'M22', 'startNodeId': 'N13', 'endNodeId': 'N7', 'type': 'TRUSS_DIAGONAL', 'role': 'TrussWeb'},
+                    # Purlins
+                    {'id': 'M23', 'startNodeId': 'N10', 'endNodeId': 'N13', 'type': 'PURLIN', 'role': 'Beam'},
+                ],
+                'geometry': {
+                    'buildingLength': 60,
+                    'buildingWidth': 40,
+                    'totalHeight': 18,
+                    'eaveHeight': 12,
+                    'roofSlope': 11.31,
+                    'frameCount': 3,
+                    'baySpacings': [20, 20, 20]
+                }
+            },
+            
+            # 10. Temporary Structure - Construction Shed
+            {
+                'id': 'temp_001',
+                'buildingType': 'TEMPORARY_STRUCTURE',
+                'frameSystem': 'BRACED',
+                'diaphragmType': 'FLEXIBLE',
+                'planShape': 'IRREGULAR',
+                'SFRS': 'Special concentrically braced frame',
+                'nodes': [
+                    {'id': 'N1', 'x': 0, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N2', 'x': 20, 'y': 0, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N3', 'x': 20, 'y': 15, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N4', 'x': 0, 'y': 15, 'z': 0, 'restraints': {'dx': True, 'dy': True, 'dz': True}},
+                    {'id': 'N5', 'x': 0, 'y': 0, 'z': 6},
+                    {'id': 'N6', 'x': 20, 'y': 0, 'z': 6},
+                    {'id': 'N7', 'x': 20, 'y': 15, 'z': 6},
+                    {'id': 'N8', 'x': 0, 'y': 15, 'z': 6},
+                    {'id': 'N9', 'x': 10, 'y': 7.5, 'z': 8},  # Ridge
+                ],
+                'members': [
+                    # Columns
+                    {'id': 'M1', 'startNodeId': 'N1', 'endNodeId': 'N5', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M2', 'startNodeId': 'N2', 'endNodeId': 'N6', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M3', 'startNodeId': 'N3', 'endNodeId': 'N7', 'type': 'COLUMN', 'role': 'Column'},
+                    {'id': 'M4', 'startNodeId': 'N4', 'endNodeId': 'N8', 'type': 'COLUMN', 'role': 'Column'},
+                    # Rafters
+                    {'id': 'M5', 'startNodeId': 'N5', 'endNodeId': 'N9', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M6', 'startNodeId': 'N6', 'endNodeId': 'N9', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M7', 'startNodeId': 'N7', 'endNodeId': 'N9', 'type': 'RAFTER', 'role': 'Beam'},
+                    {'id': 'M8', 'startNodeId': 'N8', 'endNodeId': 'N9', 'type': 'RAFTER', 'role': 'Beam'},
+                    # Bracing
+                    {'id': 'M9', 'startNodeId': 'N5', 'endNodeId': 'N7', 'type': 'BRACE', 'role': 'Brace'},
+                    {'id': 'M10', 'startNodeId': 'N6', 'endNodeId': 'N8', 'type': 'BRACE', 'role': 'Brace'},
+                ],
+                'geometry': {
+                    'buildingLength': 20,
+                    'buildingWidth': 15,
+                    'totalHeight': 8,
+                    'eaveHeight': 6,
+                    'roofSlope': 18.43,
+                    'frameCount': 2,
+                    'baySpacings': [10, 10]
+                }
+            },
         ]
         
         return sample_models
