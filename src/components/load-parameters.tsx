@@ -221,12 +221,14 @@ function LoadParameters({
             result = LoadCalculationEngine.calculateWindLoads(
               model,
               windParams,
+              mcp,
             );
             break;
           case "SEISMIC":
             result = LoadCalculationEngine.calculateSeismicLoads(
               model,
               seismicParams,
+              mcp,
             );
             break;
           case "SNOW":

@@ -32,29 +32,13 @@ import ThreeDVisualizer from "@/components/3d-visualizer";
 import ModelAnalyzer from "@/components/model-analyzer";
 import DebugConsole from "@/components/debug-console";
 import ErrorBoundary from "@/components/error-boundary";
+import LoadParameters from "@/components/load-parameters";
+import LoadResults from "@/components/load-results";
+import WindLoadCalculator from "@/components/wind-load-calculator";
+
 // Import components - some may be missing, using fallbacks
-let LoadParameters: any;
-let LoadResults: any;
 let ProjectHistory: any;
 let UserProfile: any;
-
-try {
-  LoadParameters = require("@/components/load-parameters").default;
-} catch {
-  LoadParameters = () => (
-    <div className="p-8 text-center">
-      Load Parameters component not available
-    </div>
-  );
-}
-
-try {
-  LoadResults = require("@/components/load-results").default;
-} catch {
-  LoadResults = () => (
-    <div className="p-8 text-center">Load Results component not available</div>
-  );
-}
 
 try {
   ProjectHistory = require("@/components/project-history").default;
@@ -76,13 +60,27 @@ try {
 
 // Import hooks and utilities
 import { useMCP } from "@/lib/mcp-manager";
+import { useAuth } from "@/components/auth-context";
 import { StructuralModel, LoadCalculationResult } from "@/types/model";
+import { LoadAssignmentEngine } from "@/lib/load-calculation";
 
 function Home() {
   const [activeTab, setActiveTab] = useState("upload");
   const [model, setModel] = useState<StructuralModel | null>(null);
   const [loadResults, setLoadResults] = useState<LoadCalculationResult[]>([]);
+  const [modelWithLoads, setModelWithLoads] = useState<StructuralModel | null>(
+    null,
+  );
   const [isLoading, setIsLoading] = useState(false);
+  const {
+    user,
+    logout,
+    isLoading: authLoading,
+    isDevelopmentBypass,
+  } = useAuth();
+
+  // Add global variable for development bypass detection
+  (window as any).isDevelopmentBypass = isDevelopmentBypass;
   const mcp = useMCP();
 
   // Handle analysis completion
@@ -118,13 +116,94 @@ function Home() {
   const handleCalculationComplete = (results: LoadCalculationResult[]) => {
     console.log("📊 HOME: Load calculations completed:", results);
     setLoadResults(results);
+
+    // Assign loads to the 3D model for visualization
+    if (model && results.length > 0) {
+      try {
+        const updatedModel = LoadAssignmentEngine.assignLoadsToModel(
+          model,
+          results,
+        );
+        setModelWithLoads(updatedModel);
+        console.log("✅ HOME: Loads assigned to 3D model for visualization");
+
+        // Store the updated model in session storage for 3D visualizer
+        sessionStorage.setItem("modelWithLoads", JSON.stringify(updatedModel));
+
+        // Dispatch event to notify 3D visualizer of load updates
+        const event = new CustomEvent("loadsAssigned", {
+          detail: { model: updatedModel, loadResults: results },
+        });
+        window.dispatchEvent(event);
+      } catch (error) {
+        console.error("❌ HOME: Failed to assign loads to model:", error);
+      }
+    }
+
+    // Automatically switch to results tab
     setActiveTab("results");
   };
 
   // Handle report generation
-  const handleGenerateReport = () => {
+  const handleGenerateReport = async () => {
     console.log("📄 HOME: Generating report...");
-    // Implement report generation logic
+
+    if (!model || !mcp.current || loadResults.length === 0) {
+      alert(
+        "Cannot generate report: Missing model, MCP, or load calculation results.",
+      );
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      // Import report generator dynamically
+      const { generatePDFReport } = await import(
+        "@/components/report-generator"
+      );
+
+      const reportConfig = {
+        reportTitle: `Load Analysis Report - ${model.name}`,
+        projectName: model.name,
+        engineerName: user?.full_name || "Engineer",
+        engineerLicense: "",
+        companyName: user?.company || "Engineering Firm",
+        includeCodeReferences: true,
+        includeCalculationSteps: true,
+        include3DFigures: true,
+        includeLoadTables: true,
+        includeComplianceStatement: true,
+        includeEngineerStamp: false,
+      };
+
+      const reportData = await generatePDFReport(
+        model,
+        loadResults,
+        reportConfig,
+      );
+
+      // Create and download the report
+      const reportBlob = new Blob([JSON.stringify(reportData, null, 2)], {
+        type: "application/json",
+      });
+
+      const url = URL.createObjectURL(reportBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${model.name}_Load_Analysis_Report.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      console.log("✅ HOME: Report generated and downloaded successfully");
+    } catch (error) {
+      console.error("❌ HOME: Report generation failed:", error);
+      alert("Failed to generate report. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Get tab status for visual indicators
@@ -356,6 +435,21 @@ function Home() {
     };
   }, [activeTab, mcp.current, mcp.isInitialized]);
 
+  // Show loading state while auth is loading
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-blue-600 rounded-xl flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <Building className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">AZLOAD</h1>
+          <p className="text-gray-600">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Header */}
@@ -374,8 +468,59 @@ function Home() {
               </div>
             </div>
 
-            {/* Status Indicators */}
+            {/* User Info and Status Indicators */}
             <div className="flex items-center space-x-4">
+              {user && (
+                <div className="flex items-center space-x-3">
+                  <div className="text-right">
+                    <div className="text-sm font-medium text-gray-900">
+                      {user.full_name || user.email}
+                      {isDevelopmentBypass && (
+                        <Badge className="ml-2 bg-red-100 text-red-800 text-xs">
+                          DEV BYPASS
+                        </Badge>
+                      )}
+                      {!isDevelopmentBypass && (
+                        <Badge className="ml-2 bg-green-100 text-green-800 text-xs">
+                          PRODUCTION
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      {user.company || "No company"}
+                      {isDevelopmentBypass && " (Development Mode)"}
+                      {!isDevelopmentBypass && " (Production Mode)"}
+                    </div>
+                  </div>
+
+                  {/* Admin Panel Access Button */}
+                  {user.is_admin && !isDevelopmentBypass && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.open("/admin", "_blank")}
+                      className="text-blue-600 hover:text-blue-900 border-blue-300"
+                    >
+                      <Shield className="w-4 h-4 mr-1" />
+                      Admin Panel
+                    </Button>
+                  )}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={logout}
+                    className={
+                      isDevelopmentBypass
+                        ? "text-red-600 hover:text-red-900 border-red-300"
+                        : "text-gray-600 hover:text-gray-900"
+                    }
+                  >
+                    <User className="w-4 h-4 mr-1" />
+                    {isDevelopmentBypass ? "Exit Dev Mode" : "Sign Out"}
+                  </Button>
+                </div>
+              )}
               {model && (
                 <div className="flex items-center space-x-2 text-sm">
                   <Building className="w-4 h-4 text-blue-600" />
@@ -387,6 +532,11 @@ function Home() {
                   <Badge variant="secondary" className="text-xs">
                     {model.unitsSystem || "Unknown"} Units
                   </Badge>
+                  {loadResults.length > 0 && (
+                    <Badge variant="default" className="text-xs bg-green-600">
+                      {loadResults.length} Load Types Calculated
+                    </Badge>
+                  )}
                 </div>
               )}
 
@@ -457,6 +607,14 @@ function Home() {
                       {mcp.current.memberTags.length}
                     </div>
                   </div>
+                  {loadResults.length > 0 && (
+                    <div>
+                      <span className="text-gray-600">Load Types:</span>
+                      <div className="font-medium text-green-600">
+                        {loadResults.length}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -644,6 +802,7 @@ function Home() {
                 <div>Model Members: {model?.members?.length || 0}</div>
                 <div>MCP Exists: {mcp.current ? "Yes" : "No"}</div>
                 <div>MCP Locked: {mcp.current?.isLocked ? "Yes" : "No"}</div>
+                <div>Load Results: {loadResults.length}</div>
                 <div>
                   Session Storage Keys: {Object.keys(sessionStorage).join(", ")}
                 </div>
@@ -679,15 +838,20 @@ function Home() {
                       <CardTitle className="flex items-center space-x-2">
                         <Eye className="w-5 h-5" />
                         <span>3D Model Viewer</span>
+                        {loadResults.length > 0 && (
+                          <Badge className="bg-green-100 text-green-800">
+                            With Loads
+                          </Badge>
+                        )}
                       </CardTitle>
                       <CardDescription>
                         Interactive 3D visualization with AI-detected member
-                        tags
+                        tags{loadResults.length > 0 && " and applied loads"}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="p-0">
                       <div className="h-[600px]">
-                        <ThreeDVisualizer model={model} />
+                        <ThreeDVisualizer model={modelWithLoads || model} />
                       </div>
                     </CardContent>
                   </Card>
@@ -697,7 +861,7 @@ function Home() {
           </TabsContent>
 
           <TabsContent value="wind" className="space-y-6">
-            <LoadParameters
+            <WindLoadCalculator
               model={model}
               mcp={mcp.current}
               onCalculationComplete={handleCalculationComplete}
@@ -721,12 +885,74 @@ function Home() {
           </TabsContent>
 
           <TabsContent value="results" className="space-y-6">
-            <LoadResults
-              model={model}
-              mcp={mcp.current}
-              results={loadResults}
-              onGenerateReport={handleGenerateReport}
-            />
+            {loadResults.length > 0 ? (
+              <>
+                <LoadResults
+                  model={modelWithLoads || model}
+                  mcp={mcp.current}
+                  results={loadResults}
+                  onGenerateReport={handleGenerateReport}
+                />
+
+                {/* Enhanced 3D Visualization with Loads */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Eye className="w-5 h-5" />
+                        <span>3D Model with Applied Loads</span>
+                      </div>
+                      <div className="flex space-x-2">
+                        <Badge className="bg-green-100 text-green-800">
+                          {loadResults.reduce(
+                            (sum, r) => sum + r.loads.length,
+                            0,
+                          )}{" "}
+                          Total Loads
+                        </Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleGenerateReport}
+                          disabled={isLoading}
+                        >
+                          <FileText className="w-4 h-4 mr-2" />
+                          {isLoading ? "Generating..." : "Generate Report"}
+                        </Button>
+                      </div>
+                    </CardTitle>
+                    <CardDescription>
+                      Interactive 3D model showing calculated loads with
+                      color-coded visualization
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="h-[600px]">
+                      <ThreeDVisualizer model={modelWithLoads || model} />
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <BarChart3 className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    No Load Calculation Results
+                  </h3>
+                  <p className="text-gray-600 mb-4">
+                    Complete load calculations in the Wind, Seismic, or Snow
+                    tabs to view results here.
+                  </p>
+                  <Button
+                    onClick={() => setActiveTab("wind")}
+                    disabled={!mcp.current?.isLocked}
+                  >
+                    Start Load Calculations
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="history" className="space-y-6">

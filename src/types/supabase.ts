@@ -361,6 +361,33 @@ export type Database = {
           },
         ]
       }
+      users: {
+        Row: {
+          created_at: string | null
+          email: string
+          full_name: string | null
+          id: string
+          role: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          full_name?: string | null
+          id: string
+          role?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          full_name?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       project_summary: {
@@ -383,7 +410,15 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      create_test_user: {
+        Args: {
+          user_email: string
+          user_password: string
+          user_full_name?: string
+          user_role?: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       building_type:

@@ -613,9 +613,52 @@ class MCPManagerClass {
       return;
     }
 
+    // Validate MCP before locking
+    if (!this.state.current.validation.isValid) {
+      console.error("❌ Cannot lock MCP: Validation errors exist");
+      throw new Error(
+        "MCP has validation errors - resolve them before locking",
+      );
+    }
+
+    if (this.state.current.memberTags.length === 0) {
+      console.error("❌ Cannot lock MCP: No member tags assigned");
+      throw new Error("MCP requires member tags before locking");
+    }
+
     this.state.current.isLocked = true;
+    this.state.current.confirmedByUser = true;
     this.state.current.lastModified = new Date();
-    console.log("🔒 MCP LOCKED:", this.state.current.id);
+
+    // Store locked MCP in sessionStorage
+    try {
+      sessionStorage.setItem("mcpData", JSON.stringify(this.state.current));
+      sessionStorage.setItem("mcpLocked", "true");
+      console.log("💾 Locked MCP stored in sessionStorage");
+    } catch (storageError) {
+      console.warn("⚠️ Failed to store locked MCP:", storageError);
+    }
+
+    // Dispatch event to notify load tabs
+    window.dispatchEvent(
+      new CustomEvent("mcpLocked", {
+        detail: {
+          mcpId: this.state.current.id,
+          buildingType: this.state.current.buildingType,
+          memberTags: this.state.current.memberTags.length,
+          timestamp: new Date().toISOString(),
+        },
+      }),
+    );
+
+    console.log("🔒 MCP LOCKED - LOAD CALCULATIONS ENABLED:", {
+      mcpId: this.state.current.id,
+      buildingType: this.state.current.buildingType,
+      memberTags: this.state.current.memberTags.length,
+      dimensions: this.state.current.dimensions,
+      timestamp: new Date().toISOString(),
+    });
+
     this.notify();
   }
 

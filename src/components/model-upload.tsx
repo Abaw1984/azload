@@ -19,10 +19,14 @@ import {
   Layers,
   Database,
   Zap,
+  HardDrive,
+  Cloud,
 } from "lucide-react";
 import { StructuralModel } from "@/types/model";
 import { UniversalParser } from "@/lib/model-parser";
 import { MCPManager } from "@/lib/mcp-manager";
+import { useAuth } from "@/components/auth-context";
+import { fileStorage, UploadProgress } from "@/lib/file-storage";
 
 interface ModelUploadProps {
   setActiveTab: (tab: string) => void;
@@ -37,6 +41,7 @@ interface UploadState {
 }
 
 function ModelUpload({ setActiveTab }: ModelUploadProps) {
+  const { user } = useAuth();
   const [uploadState, setUploadState] = useState<UploadState>({
     isUploading: false,
     progress: 0,
@@ -45,6 +50,10 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
     warnings: [],
   });
   const [dragActive, setDragActive] = useState(false);
+  const [persistentStorage, setPersistentStorage] = useState(true);
+  const [storageProgress, setStorageProgress] = useState<UploadProgress | null>(
+    null,
+  );
 
   const supportedFormats = [
     {
@@ -111,12 +120,25 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
 
   async function handleUpload(file: File) {
     console.log(
-      "🚀 ENHANCED UPLOAD: Starting with memory cleanup and tracking",
+      "🚀 ENHANCED UPLOAD WITH PERSISTENT STORAGE: Starting with memory cleanup and tracking",
       {
         fileName: file.name,
         fileSize: file.size,
+        persistentStorage,
+        userId: user?.id,
       },
     );
+
+    if (!user) {
+      setUploadState({
+        isUploading: false,
+        progress: 0,
+        currentStep: "",
+        error: "Please log in to upload files",
+        warnings: [],
+      });
+      return;
+    }
 
     // CRITICAL: Clear previous model data to prevent WebGL context loss
     console.log("🧹 CLEARING PREVIOUS MODEL DATA TO PREVENT MEMORY LEAKS");
@@ -130,11 +152,13 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
     // Set loading state
     setUploadState({
       isUploading: true,
-      progress: 10,
-      currentStep: "Validating file and clearing memory...",
+      progress: 5,
+      currentStep: "Initializing upload with persistent storage...",
       error: null,
       warnings: [],
     });
+
+    let storedFile = null;
 
     try {
       // Validate file type
@@ -154,11 +178,76 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
         return;
       }
 
+      // STEP 0: Upload to persistent storage if enabled
+      if (persistentStorage) {
+        console.log("☁️ STEP 0: Uploading to persistent storage...");
+        setUploadState((prev) => ({
+          ...prev,
+          progress: 15,
+          currentStep: "Connecting to secure cloud storage...",
+        }));
+
+        try {
+          // Add timeout wrapper for the entire storage upload
+          const storageTimeout = 30000; // 30 seconds total timeout
+          const storagePromise = fileStorage.uploadFile(
+            file,
+            user.id,
+            undefined,
+            (progress) => {
+              setStorageProgress(progress);
+              setUploadState((prev) => ({
+                ...prev,
+                progress: 15 + progress.percentage * 0.15, // 15-30% for storage upload
+                currentStep: `Cloud storage: ${progress.message}`,
+              }));
+            },
+          );
+
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => {
+              reject(
+                new Error(
+                  "Storage upload timeout - continuing with local processing",
+                ),
+              );
+            }, storageTimeout);
+          });
+
+          storedFile = (await Promise.race([
+            storagePromise,
+            timeoutPromise,
+          ])) as any;
+
+          console.log(
+            "✅ STEP 0 COMPLETE: File uploaded to persistent storage",
+            storedFile.id,
+          );
+        } catch (storageError) {
+          console.warn(
+            "⚠️ Persistent storage failed, continuing with local processing:",
+            storageError,
+          );
+
+          // Show user-friendly message about storage failure
+          setUploadState((prev) => ({
+            ...prev,
+            progress: 30,
+            currentStep: "Cloud storage unavailable - processing locally...",
+          }));
+
+          // Clear storage progress
+          setStorageProgress(null);
+
+          // Continue with local processing even if storage fails
+        }
+      }
+
       // STEP 1: Parse geometry with enhanced validation
       console.log("📐 STEP 1: Parse geometry with material validation...");
       setUploadState((prev) => ({
         ...prev,
-        progress: 30,
+        progress: 35,
         currentStep: "Parsing geometry and validating materials...",
       }));
 
@@ -244,6 +333,24 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
       // Store the model
       sessionStorage.setItem("parsedModel", JSON.stringify(parsedModel));
 
+      // Update file metadata if stored
+      if (storedFile) {
+        try {
+          await fileStorage.updateFileMetadata(storedFile.id, {
+            modelInfo: {
+              nodes: parsedModel.nodes.length,
+              members: parsedModel.members.length,
+              materials: parsedModel.materials?.length || 0,
+              sections: parsedModel.sections?.length || 0,
+            },
+            parsingStatus: "SUCCESS",
+          });
+          console.log("✅ File metadata updated in storage");
+        } catch (metadataError) {
+          console.warn("⚠️ Failed to update file metadata:", metadataError);
+        }
+      }
+
       // Fire geometry ready event
       window.dispatchEvent(
         new CustomEvent("geometryReady", {
@@ -253,6 +360,7 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
             uploadNumber: newCount,
             hasMaterials,
             materialValidation,
+            storedFileId: storedFile?.id,
           },
         }),
       );
@@ -327,6 +435,20 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
       }, 1000);
     } catch (error) {
       console.error("❌ Enhanced upload failed:", error);
+
+      // Update file metadata if stored but parsing failed
+      if (storedFile) {
+        try {
+          await fileStorage.updateFileMetadata(storedFile.id, {
+            parsingStatus: "FAILED",
+            parsingError:
+              error instanceof Error ? error.message : "Upload failed",
+          });
+        } catch (metadataError) {
+          console.warn("⚠️ Failed to update error metadata:", metadataError);
+        }
+      }
+
       setUploadState({
         isUploading: false,
         progress: 0,
@@ -334,99 +456,6 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
         error: error instanceof Error ? error.message : "Upload failed",
         warnings: [],
       });
-    }
-  }
-
-  // Store geometry-only model for visualization when materials are missing
-  async function storeGeometryOnlyModel(model: StructuralModel): Promise<void> {
-    try {
-      console.log("💾 Storing geometry-only model for visualization...");
-
-      const geometryData = {
-        id: model.id,
-        name: model.name,
-        type: model.type,
-        units: model.units,
-        unitsSystem: model.unitsSystem,
-        nodes: model.nodes,
-        members: model.members,
-        sections: model.sections || [],
-        materials: model.materials || [],
-        geometry: model.geometry,
-        materialValidation: model.materialValidation,
-        timestamp: Date.now(),
-        status: "geometry_only",
-        loadCalculationsEnabled: false,
-      };
-
-      const geometryJson = JSON.stringify(geometryData);
-
-      // Store with special key to indicate geometry-only mode
-      sessionStorage.setItem("parsedGeometry", geometryJson);
-      sessionStorage.setItem("geometryOnlyMode", "true");
-
-      // Fire geometry-only event
-      const geometryEvent = new CustomEvent("geometryOnlyReady", {
-        detail: {
-          model: geometryData,
-          materialsRequired: true,
-          loadCalculationsDisabled: true,
-        },
-      });
-      window.dispatchEvent(geometryEvent);
-
-      console.log("✅ Geometry-only model stored successfully");
-    } catch (error) {
-      console.error("❌ Failed to store geometry-only model:", error);
-    }
-  }
-
-  // Track model upload for ML training evaluation
-  function trackModelUpload(model: StructuralModel): void {
-    try {
-      const uploadRecord = {
-        id: crypto.randomUUID(),
-        modelId: model.id,
-        modelName: model.name,
-        timestamp: new Date().toISOString(),
-        nodes: model.nodes.length,
-        members: model.members.length,
-        materialsAssigned: model.materialValidation?.materialsAssigned || false,
-        sectionsAssigned: model.materialValidation?.sectionsAssigned || false,
-        fileType: model.type,
-        unitsSystem: model.unitsSystem,
-      };
-
-      // Get existing upload records
-      const existingUploads = JSON.parse(
-        sessionStorage.getItem("modelUploads") || "[]",
-      );
-
-      existingUploads.push(uploadRecord);
-
-      // Keep only last 100 uploads
-      if (existingUploads.length > 100) {
-        existingUploads.splice(0, existingUploads.length - 100);
-      }
-
-      sessionStorage.setItem("modelUploads", JSON.stringify(existingUploads));
-
-      // Dispatch upload tracking event
-      window.dispatchEvent(
-        new CustomEvent("modelUploadTracked", {
-          detail: {
-            totalUploads: existingUploads.length,
-            latestUpload: uploadRecord,
-          },
-        }),
-      );
-
-      console.log("📊 Model upload tracked for ML training evaluation", {
-        totalUploads: existingUploads.length,
-        modelId: model.id,
-      });
-    } catch (error) {
-      console.warn("Failed to track model upload:", error);
     }
   }
 
@@ -440,10 +469,43 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
           </CardTitle>
           <CardDescription>
             Upload STAAD.Pro or SAP2000 files for AI-powered analysis and load
-            calculation
+            calculation with secure cloud storage
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Storage Options */}
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <Cloud className="w-5 h-5 text-blue-600" />
+                <div>
+                  <h4 className="font-medium text-blue-900">
+                    Secure Cloud Storage
+                  </h4>
+                  <p className="text-sm text-blue-700">
+                    Files are automatically saved to secure cloud storage for
+                    future access
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="persistent-storage"
+                  checked={persistentStorage}
+                  onChange={(e) => setPersistentStorage(e.target.checked)}
+                  className="rounded"
+                />
+                <label
+                  htmlFor="persistent-storage"
+                  className="text-sm font-medium text-blue-900"
+                >
+                  Enable Storage
+                </label>
+              </div>
+            </div>
+          </div>
+
           {/* Upload Area */}
           <div
             className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
@@ -474,6 +536,12 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
                   <p className="text-sm text-gray-600">
                     {Math.round(uploadState.progress)}% complete
                   </p>
+                  {storageProgress && (
+                    <div className="text-xs text-blue-600">
+                      Storage: {storageProgress.stage} -{" "}
+                      {storageProgress.message}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -562,16 +630,20 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
             </div>
           </div>
 
-          {/* Staged Parsing Guidelines */}
+          {/* Enhanced Parsing Guidelines */}
           <Card className="bg-blue-50 border-blue-200">
             <CardContent className="p-4">
               <div className="flex items-start space-x-3">
                 <CheckCircle className="w-5 h-5 text-blue-600 mt-0.5" />
                 <div className="space-y-2">
                   <h4 className="font-medium text-blue-900">
-                    Staged Parsing Workflow
+                    Enhanced Upload with Cloud Storage
                   </h4>
                   <ul className="text-sm text-blue-800 space-y-1">
+                    <li>
+                      • <strong>Stage 0:</strong> Secure upload to cloud storage
+                      with progress tracking
+                    </li>
                     <li>
                       • <strong>Stage 1:</strong> Parse geometry for immediate
                       3D visualization
@@ -584,7 +656,9 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
                       • <strong>Stage 3:</strong> Enable ML API only if
                       materials are assigned
                     </li>
-                    <li>• Maximum file size: 100 MB</li>
+                    <li>• Maximum file size: 100 MB per file</li>
+                    <li>• Files are encrypted and securely stored</li>
+                    <li>• Access your files anytime from the File Manager</li>
                     <li>
                       • Material properties must be assigned in STAAD.Pro or
                       SAP2000
@@ -595,6 +669,46 @@ function ModelUpload({ setActiveTab }: ModelUploadProps) {
                     <li>
                       • AI analysis works best with well-defined structural
                       systems
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Storage Benefits */}
+          <Card className="bg-green-50 border-green-200">
+            <CardContent className="p-4">
+              <div className="flex items-start space-x-3">
+                <HardDrive className="w-5 h-5 text-green-600 mt-0.5" />
+                <div className="space-y-2">
+                  <h4 className="font-medium text-green-900">
+                    Cloud Storage Benefits
+                  </h4>
+                  <ul className="text-sm text-green-800 space-y-1">
+                    <li>
+                      • <strong>Persistent Access:</strong> Files remain
+                      available across sessions
+                    </li>
+                    <li>
+                      • <strong>Project History:</strong> Track all your
+                      uploaded models
+                    </li>
+                    <li>
+                      • <strong>Secure Backup:</strong> Never lose your
+                      structural models
+                    </li>
+                    <li>
+                      • <strong>Team Collaboration:</strong> Share files with
+                      team members (coming soon)
+                    </li>
+                    <li>
+                      • <strong>Version Control:</strong> Keep track of model
+                      revisions
+                    </li>
+                    <li>
+                      • <strong>Download Anytime:</strong> Retrieve original
+                      files when needed
                     </li>
                   </ul>
                 </div>

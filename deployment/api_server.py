@@ -335,6 +335,18 @@ async def get_model_info():
             if rf_model and hasattr(rf_model, 'feature_importances_'):
                 member_features = [f"member_feature_{i}" for i in range(len(rf_model.feature_importances_))]
         
+        # Handle performance_metrics - ensure it's a dictionary
+        performance_history = metadata.get("performance_history", [])
+        if isinstance(performance_history, list):
+            # Convert list to dictionary format expected by the response model
+            performance_metrics = {
+                "training_runs": len(performance_history),
+                "last_updated": metadata.get("training_date", "unknown"),
+                "model_status": "trained" if performance_history else "no_training_data"
+            }
+        else:
+            performance_metrics = performance_history
+        
         return ModelInfoResponse(
             building_classifier_type="VotingClassifier (RF+XGB+LGB)",
             member_classifier_type="VotingClassifier (RF+XGB+LGB)",
@@ -347,7 +359,7 @@ async def get_model_info():
             aisc_360_compliant=metadata.get("aisc_360_compliant", True),
             asce_7_compliant=metadata.get("asce_7_compliant", True),
             training_date=metadata.get("training_date"),
-            performance_metrics=metadata.get("performance_history")
+            performance_metrics=performance_metrics
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting model info: {str(e)}")

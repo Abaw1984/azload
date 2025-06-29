@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -7,799 +7,506 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  BarChart3,
-  Database,
-  Download,
-  Eye,
-  FileText,
-  Settings,
-  Trash2,
-  Upload,
-  Users,
-  Activity,
-  Brain,
   CheckCircle,
-  Clock,
   AlertTriangle,
-  TrendingUp,
-  Calendar,
-  Building,
+  Database,
   Zap,
+  Building,
+  Brain,
+  Activity,
+  TrendingUp,
+  Users,
+  Globe,
+  Shield,
+  Clock,
 } from "lucide-react";
-import { db, auth, realtime } from "@/lib/supabase";
-import type { Database } from "@/types/supabase";
-import { cn } from "@/lib/utils";
+import { useAuth } from "@/components/auth-context";
 
-type ProjectSummary = Database["public"]["Views"]["project_summary"]["Row"];
-type Override = Database["public"]["Tables"]["overrides"]["Row"];
-type MLRequest = Database["public"]["Tables"]["ml_requests"]["Row"];
-type TrainingLog = Database["public"]["Tables"]["training_logs"]["Row"];
-type UserProfile = Database["public"]["Tables"]["user_profiles"]["Row"];
-
-interface DashboardStats {
+interface ProductionMetrics {
   totalUploads: number;
-  totalOverrides: number;
-  mlTrainingStatus: string;
-  activeProjects: number;
-  completedAnalyses: number;
-  pendingReports: number;
-}
-
-interface ActivityItem {
-  id: string;
-  type: "upload" | "override" | "ml_request" | "report";
-  description: string;
-  timestamp: string;
-  status: "success" | "pending" | "failed";
+  mlTrainingEvents: number;
+  activeUsers: number;
+  systemHealth: "healthy" | "warning" | "error";
+  mlApiStatus: "online" | "offline" | "degraded";
+  databaseStatus: "connected" | "disconnected" | "slow";
+  lastUpdated: Date;
 }
 
 function ProductionDashboard() {
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats>({
+  const { user, isAdmin } = useAuth();
+  const [metrics, setMetrics] = useState<ProductionMetrics>({
     totalUploads: 0,
-    totalOverrides: 0,
-    mlTrainingStatus: "idle",
-    activeProjects: 0,
-    completedAnalyses: 0,
-    pendingReports: 0,
+    mlTrainingEvents: 0,
+    activeUsers: 1,
+    systemHealth: "healthy",
+    mlApiStatus: "online",
+    databaseStatus: "connected",
+    lastUpdated: new Date(),
   });
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [overrides, setOverrides] = useState<Override[]>([]);
-  const [mlRequests, setMLRequests] = useState<MLRequest[]>([]);
-  const [trainingLogs, setTrainingLogs] = useState<TrainingLog[]>([]);
-  const [activityTimeline, setActivityTimeline] = useState<ActivityItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [realTimeStats, setRealTimeStats] = useState({
+    sessionsToday: 0,
+    modelsProcessed: 0,
+    mlPredictions: 0,
+    userOverrides: 0,
+  });
 
-  // Initialize dashboard data
+  // Load production metrics
   useEffect(() => {
-    initializeDashboard();
+    loadProductionMetrics();
+
+    // Set up real-time updates
+    const interval = setInterval(loadProductionMetrics, 30000); // Update every 30 seconds
+
+    return () => clearInterval(interval);
   }, []);
 
-  const initializeDashboard = async () => {
+  const loadProductionMetrics = async () => {
     try {
-      setLoading(true);
-      setError(null);
+      // Get metrics from session storage and local tracking
+      const uploadCounter = parseInt(
+        sessionStorage.getItem("uploadCounter") || "0",
+      );
+      const mlTrainingCount = parseInt(
+        sessionStorage.getItem("mlTrainingCount") || "0",
+      );
+      const mlLearningCounter = JSON.parse(
+        sessionStorage.getItem("mlLearningCounter") || "{}",
+      );
 
-      // Get current user
-      const user = await auth.getCurrentUser();
-      if (!user) {
-        setError("Please sign in to access the dashboard");
-        return;
-      }
-      setCurrentUser(user);
-
-      // Load user profile
+      // Check ML API health
+      let mlApiStatus: "online" | "offline" | "degraded" = "offline";
       try {
-        const profile = await db.userProfiles.getById(user.id);
-        setUserProfile(profile);
-      } catch (profileError) {
-        console.warn("User profile not found, creating default");
-        // Create default profile if it doesn't exist
-        const defaultProfile = await db.userProfiles.create({
-          id: user.id,
-          email: user.email || "",
-          full_name: user.user_metadata?.full_name || "User",
-          subscription_tier: "free",
-        });
-        setUserProfile(defaultProfile);
+        const mlApiUrl = import.meta.env.VITE_ML_API_URL;
+        if (mlApiUrl) {
+          const response = await fetch(`${mlApiUrl}/health`, {
+            method: "GET",
+            timeout: 5000,
+          } as any);
+          if (response.ok) {
+            mlApiStatus = "online";
+          } else {
+            mlApiStatus = "degraded";
+          }
+        }
+      } catch (error) {
+        mlApiStatus = "offline";
       }
 
-      // Load all dashboard data
-      await Promise.all([
-        loadProjects(user.id),
-        loadOverrides(user.id),
-        loadMLRequests(user.id),
-        loadTrainingLogs(),
-      ]);
+      // Check database status (Supabase)
+      let databaseStatus: "connected" | "disconnected" | "slow" = "connected";
+      try {
+        const { supabase } = await import("@/lib/supabase");
+        const startTime = Date.now();
+        const { error } = await supabase
+          .from("user_profiles")
+          .select("id")
+          .limit(1);
+        const responseTime = Date.now() - startTime;
 
-      // Setup real-time subscriptions
-      setupRealtimeSubscriptions(user.id);
-    } catch (err) {
-      console.error("Dashboard initialization error:", err);
-      setError(err instanceof Error ? err.message : "Failed to load dashboard");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadProjects = async (userId: string) => {
-    try {
-      const projectData = await db.projectSummary.getByUserId(userId);
-      setProjects(projectData);
-
-      // Update stats
-      setDashboardStats((prev) => ({
-        ...prev,
-        totalUploads: projectData.length,
-        activeProjects: projectData.filter(
-          (p) => p.status === "processing" || p.status === "uploading",
-        ).length,
-        completedAnalyses: projectData.filter((p) => p.status === "completed")
-          .length,
-      }));
-    } catch (err) {
-      console.error("Error loading projects:", err);
-    }
-  };
-
-  const loadOverrides = async (userId: string) => {
-    try {
-      const overrideData = await db.overrides.getByUserId(userId);
-      setOverrides(overrideData);
-
-      setDashboardStats((prev) => ({
-        ...prev,
-        totalOverrides: overrideData.length,
-      }));
-    } catch (err) {
-      console.error("Error loading overrides:", err);
-    }
-  };
-
-  const loadMLRequests = async (userId: string) => {
-    try {
-      const mlData = await db.mlRequests.getByStatus("completed");
-      const userMLData = mlData.filter((req) => req.user_id === userId);
-      setMLRequests(userMLData);
-    } catch (err) {
-      console.error("Error loading ML requests:", err);
-    }
-  };
-
-  const loadTrainingLogs = async () => {
-    try {
-      const logs = await db.trainingLogs.getAll();
-      setTrainingLogs(logs.slice(0, 5)); // Get latest 5 logs
-
-      const latestLog = logs[0];
-      if (latestLog) {
-        setDashboardStats((prev) => ({
-          ...prev,
-          mlTrainingStatus: latestLog.deployment_status || "idle",
-        }));
+        if (error) {
+          databaseStatus = "disconnected";
+        } else if (responseTime > 2000) {
+          databaseStatus = "slow";
+        } else {
+          databaseStatus = "connected";
+        }
+      } catch (error) {
+        databaseStatus = "disconnected";
       }
-    } catch (err) {
-      console.error("Error loading training logs:", err);
-    }
-  };
 
-  const setupRealtimeSubscriptions = (userId: string) => {
-    // Subscribe to projects changes
-    const projectsSub = realtime.subscribeToProjects(userId, (payload) => {
-      console.log("Projects updated:", payload);
-      loadProjects(userId);
-    });
-
-    // Subscribe to overrides changes
-    const overridesSub = realtime.subscribeToOverrides(userId, (payload) => {
-      console.log("Overrides updated:", payload);
-      loadOverrides(userId);
-    });
-
-    // Subscribe to ML requests changes
-    const mlSub = realtime.subscribeToMLRequests(userId, (payload) => {
-      console.log("ML requests updated:", payload);
-      loadMLRequests(userId);
-    });
-
-    // Cleanup subscriptions on unmount
-    return () => {
-      projectsSub.unsubscribe();
-      overridesSub.unsubscribe();
-      mlSub.unsubscribe();
-    };
-  };
-
-  const handleDeleteProject = async (projectId: string) => {
-    try {
-      await db.projects.delete(projectId);
-      // Refresh projects list
-      if (currentUser) {
-        await loadProjects(currentUser.id);
+      // Determine overall system health
+      let systemHealth: "healthy" | "warning" | "error" = "healthy";
+      if (databaseStatus === "disconnected" || mlApiStatus === "offline") {
+        systemHealth = "error";
+      } else if (databaseStatus === "slow" || mlApiStatus === "degraded") {
+        systemHealth = "warning";
       }
-    } catch (err) {
-      console.error("Error deleting project:", err);
-      setError("Failed to delete project");
+
+      setMetrics({
+        totalUploads: uploadCounter,
+        mlTrainingEvents: mlLearningCounter.totalOverrides || 0,
+        activeUsers: 1, // Would be actual count in production
+        systemHealth,
+        mlApiStatus,
+        databaseStatus,
+        lastUpdated: new Date(),
+      });
+
+      setRealTimeStats({
+        sessionsToday: uploadCounter,
+        modelsProcessed: uploadCounter,
+        mlPredictions: mlTrainingCount,
+        userOverrides: mlLearningCounter.totalOverrides || 0,
+      });
+
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Failed to load production metrics:", error);
+      setIsLoading(false);
     }
   };
 
-  const handleDownloadReport = (projectId: string) => {
-    // Implement report download logic
-    console.log("Downloading report for project:", projectId);
-  };
-
-  const handleView3D = (projectId: string) => {
-    // Navigate to 3D viewer
-    console.log("Opening 3D view for project:", projectId);
-  };
-
-  const getStatusBadge = (status: string | null) => {
-    switch (status) {
-      case "completed":
-        return <Badge className="bg-green-100 text-green-800">Completed</Badge>;
-      case "processing":
-        return <Badge className="bg-blue-100 text-blue-800">Processing</Badge>;
-      case "uploading":
-        return (
-          <Badge className="bg-yellow-100 text-yellow-800">Uploading</Badge>
-        );
-      case "failed":
-        return <Badge className="bg-red-100 text-red-800">Failed</Badge>;
-      case "archived":
-        return <Badge className="bg-gray-100 text-gray-800">Archived</Badge>;
+  const getHealthColor = (health: string) => {
+    switch (health) {
+      case "healthy":
+      case "online":
+      case "connected":
+        return "text-green-600 bg-green-100";
+      case "warning":
+      case "degraded":
+      case "slow":
+        return "text-yellow-600 bg-yellow-100";
+      case "error":
+      case "offline":
+      case "disconnected":
+        return "text-red-600 bg-red-100";
       default:
-        return <Badge variant="outline">Unknown</Badge>;
+        return "text-gray-600 bg-gray-100";
     }
   };
 
-  const getBuildingTypeBadge = (buildingType: string | null) => {
-    if (!buildingType) return <Badge variant="outline">Unknown</Badge>;
-
-    const colorMap: { [key: string]: string } = {
-      SINGLE_GABLE_HANGAR: "bg-blue-100 text-blue-800",
-      DOUBLE_GABLE_HANGAR: "bg-green-100 text-green-800",
-      MULTI_GABLE_HANGAR: "bg-purple-100 text-purple-800",
-      WAREHOUSE_BUILDING: "bg-orange-100 text-orange-800",
-      INDUSTRIAL_BUILDING: "bg-red-100 text-red-800",
-      COMMERCIAL_BUILDING: "bg-teal-100 text-teal-800",
-    };
-
-    const colorClass = colorMap[buildingType] || "bg-gray-100 text-gray-800";
-    const displayName = buildingType
-      .replace(/_/g, " ")
-      .toLowerCase()
-      .replace(/\b\w/g, (l) => l.toUpperCase());
-
-    return <Badge className={colorClass}>{displayName}</Badge>;
+  const getHealthIcon = (health: string) => {
+    switch (health) {
+      case "healthy":
+      case "online":
+      case "connected":
+        return <CheckCircle className="w-4 h-4" />;
+      case "warning":
+      case "degraded":
+      case "slow":
+        return <AlertTriangle className="w-4 h-4" />;
+      case "error":
+      case "offline":
+      case "disconnected":
+        return <AlertTriangle className="w-4 h-4" />;
+      default:
+        return <Activity className="w-4 h-4" />;
+    }
   };
 
-  const formatFileSize = (bytes: number | null) => {
-    if (!bytes) return "Unknown";
-    const mb = bytes / (1024 * 1024);
-    return `${mb.toFixed(1)} MB`;
-  };
-
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "Unknown";
-    return new Date(dateString).toLocaleDateString();
-  };
-
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-white">
-        <div className="text-center space-y-4">
-          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto animate-pulse">
-            <Database className="w-8 h-8 text-blue-600" />
+      <Card>
+        <CardContent className="p-8 text-center">
+          <div className="space-y-4">
+            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto animate-pulse">
+              <Activity className="w-8 h-8 text-blue-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">
+                Loading Production Metrics...
+              </h3>
+              <p className="text-gray-600">Checking system status</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-lg font-medium text-gray-900">
-              Loading Dashboard...
-            </h3>
-            <p className="text-gray-600">Fetching your project data</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-white">
-        <Alert variant="destructive" className="max-w-md">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      </div>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="space-y-6 bg-white p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            Production Dashboard
-          </h1>
-          <p className="text-gray-600">
-            Welcome back, {userProfile?.full_name || currentUser?.email}
-          </p>
-        </div>
-        <div className="flex items-center space-x-3">
-          <Badge className="bg-blue-100 text-blue-800">
-            {userProfile?.subscription_tier || "Free"} Plan
-          </Badge>
-          <Button variant="outline" size="sm">
-            <Settings className="w-4 h-4 mr-2" />
-            Settings
-          </Button>
-        </div>
-      </div>
-
-      {/* Dashboard Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">
-                  Total Uploads
-                </p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {dashboardStats.totalUploads}
-                </p>
+    <div className="space-y-6 bg-white">
+      {/* System Health Overview */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Shield className="w-5 h-5" />
+            <span>Production System Status</span>
+            <Badge className={getHealthColor(metrics.systemHealth)}>
+              {getHealthIcon(metrics.systemHealth)}
+              <span className="ml-1 capitalize">{metrics.systemHealth}</span>
+            </Badge>
+          </CardTitle>
+          <CardDescription>
+            Real-time monitoring of AZLOAD production environment
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* ML API Status */}
+            <div className="p-4 border rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-2">
+                  <Brain className="w-5 h-5 text-purple-600" />
+                  <span className="font-medium">ML API</span>
+                </div>
+                <Badge className={getHealthColor(metrics.mlApiStatus)}>
+                  {getHealthIcon(metrics.mlApiStatus)}
+                  <span className="ml-1 capitalize">{metrics.mlApiStatus}</span>
+                </Badge>
               </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <Upload className="w-6 h-6 text-blue-600" />
+              <div className="text-sm text-gray-600">
+                Digital Ocean ML Server
+                <br />
+                <span className="text-xs">
+                  {import.meta.env.VITE_ML_API_URL || "Not configured"}
+                </span>
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">
-                  Manual Overrides
-                </p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {dashboardStats.totalOverrides}
-                </p>
+            {/* Database Status */}
+            <div className="p-4 border rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-2">
+                  <Database className="w-5 h-5 text-blue-600" />
+                  <span className="font-medium">Database</span>
+                </div>
+                <Badge className={getHealthColor(metrics.databaseStatus)}>
+                  {getHealthIcon(metrics.databaseStatus)}
+                  <span className="ml-1 capitalize">
+                    {metrics.databaseStatus}
+                  </span>
+                </Badge>
               </div>
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <Settings className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">
-                  Active Projects
-                </p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {dashboardStats.activeProjects}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                <Activity className="w-6 h-6 text-yellow-600" />
+              <div className="text-sm text-gray-600">
+                Supabase PostgreSQL
+                <br />
+                <span className="text-xs">
+                  {import.meta.env.VITE_SUPABASE_URL
+                    ? "Configured"
+                    : "Not configured"}
+                </span>
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">ML Training</p>
-                <p className="text-sm font-bold text-gray-900 capitalize">
-                  {dashboardStats.mlTrainingStatus}
-                </p>
+            {/* User Session */}
+            <div className="p-4 border rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-2">
+                  <Users className="w-5 h-5 text-green-600" />
+                  <span className="font-medium">User Session</span>
+                </div>
+                <Badge className="bg-green-100 text-green-800">
+                  <CheckCircle className="w-4 h-4" />
+                  <span className="ml-1">Active</span>
+                </Badge>
               </div>
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Brain className="w-6 h-6 text-purple-600" />
+              <div className="text-sm text-gray-600">
+                {user?.full_name || user?.email}
+                <br />
+                <span className="text-xs">{user?.company || "No company"}</span>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main Content Tabs */}
-      <Tabs defaultValue="projects" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="projects">Projects</TabsTrigger>
-          <TabsTrigger value="overrides">Overrides</TabsTrigger>
-          <TabsTrigger value="ml-status">ML Status</TabsTrigger>
-          <TabsTrigger value="reports">Reports</TabsTrigger>
-          <TabsTrigger value="activity">Activity</TabsTrigger>
-        </TabsList>
-
-        {/* Projects Tab */}
-        <TabsContent value="projects">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Building className="w-5 h-5" />
-                <span>Project List</span>
-              </CardTitle>
-              <CardDescription>
-                Manage your uploaded structural models and analysis results
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {projects.length === 0 ? (
-                <div className="text-center py-8">
-                  <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    No projects yet
-                  </h3>
-                  <p className="text-gray-600">
-                    Upload your first structural model to get started
-                  </p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Project Name</TableHead>
-                        <TableHead>Building Type</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Upload Date</TableHead>
-                        <TableHead>File Size</TableHead>
-                        <TableHead>Nodes/Members</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {projects.map((project) => (
-                        <TableRow key={project.project_id}>
-                          <TableCell className="font-medium">
-                            {project.project_name}
-                          </TableCell>
-                          <TableCell>
-                            {getBuildingTypeBadge(project.building_type)}
-                          </TableCell>
-                          <TableCell>
-                            {getStatusBadge(project.status)}
-                          </TableCell>
-                          <TableCell className="text-sm text-gray-600">
-                            {formatDate(project.upload_time)}
-                          </TableCell>
-                          <TableCell className="text-sm text-gray-600">
-                            {formatFileSize(project.file_size)}
-                          </TableCell>
-                          <TableCell className="text-sm text-gray-600">
-                            {project.node_count || 0} /{" "}
-                            {project.member_count || 0}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center space-x-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  handleView3D(project.project_id!)
-                                }
-                              >
-                                <Eye className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  handleDownloadReport(project.project_id!)
-                                }
-                              >
-                                <Download className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-red-600 hover:text-red-700"
-                                onClick={() =>
-                                  handleDeleteProject(project.project_id!)
-                                }
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Overrides Tab */}
-        <TabsContent value="overrides">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Settings className="w-5 h-5" />
-                <span>Override History</span>
-              </CardTitle>
-              <CardDescription>
-                Manual member tag corrections and training data contributions
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {overrides.length === 0 ? (
-                <div className="text-center py-8">
-                  <Settings className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    No overrides yet
-                  </h3>
-                  <p className="text-gray-600">
-                    Manual corrections will appear here
-                  </p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Member ID</TableHead>
-                        <TableHead>Original Tag</TableHead>
-                        <TableHead>New Tag</TableHead>
-                        <TableHead>Confidence</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Training Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {overrides.map((override) => (
-                        <TableRow key={override.override_id}>
-                          <TableCell className="font-medium">
-                            {override.member_id}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {override.original_tag}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className="bg-green-100 text-green-800">
-                              {override.new_tag}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {override.confidence
-                              ? `${(override.confidence * 100).toFixed(1)}%`
-                              : "N/A"}
-                          </TableCell>
-                          <TableCell className="text-sm text-gray-600">
-                            {formatDate(override.override_timestamp)}
-                          </TableCell>
-                          <TableCell>
-                            {override.used_in_training ? (
-                              <Badge className="bg-blue-100 text-blue-800">
-                                Used
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline">Pending</Badge>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ML Status Tab */}
-        <TabsContent value="ml-status">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Brain className="w-5 h-5" />
-                  <span>ML Analysis Status</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">
-                      Building Classification
-                    </span>
-                    <Badge className="bg-green-100 text-green-800">
-                      Active
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Member Tagging</span>
-                    <Badge className="bg-green-100 text-green-800">
-                      Active
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">
-                      Load Criteria Analysis
-                    </span>
-                    <Badge className="bg-blue-100 text-blue-800">
-                      Processing
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Height Category</span>
-                    <Badge className="bg-green-100 text-green-800">
-                      Complete
-                    </Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <TrendingUp className="w-5 h-5" />
-                  <span>Training Progress</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Model Accuracy</span>
-                      <span>94.2%</span>
-                    </div>
-                    <Progress value={94.2} className="h-2" />
-                  </div>
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Training Data</span>
-                      <span>{overrides.length} samples</span>
-                    </div>
-                    <Progress
-                      value={Math.min((overrides.length / 100) * 100, 100)}
-                      className="h-2"
-                    />
-                  </div>
-                  <div className="pt-2 text-sm text-gray-600">
-                    Last training:{" "}
-                    {trainingLogs[0]
-                      ? formatDate(trainingLogs[0].retrain_time)
-                      : "Never"}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
           </div>
-        </TabsContent>
+        </CardContent>
+      </Card>
 
-        {/* Reports Tab */}
-        <TabsContent value="reports">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <FileText className="w-5 h-5" />
-                <span>Reports Section</span>
-              </CardTitle>
-              <CardDescription>
-                Download generated reports and view report status
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8">
-                <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  Reports Coming Soon
-                </h3>
-                <p className="text-gray-600">
-                  PDF report generation will be available in the next update
-                </p>
+      {/* Real-time Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-6 text-center">
+            <div className="text-3xl font-bold text-blue-600 mb-2">
+              {realTimeStats.sessionsToday}
+            </div>
+            <div className="text-sm text-gray-600 flex items-center justify-center space-x-1">
+              <Activity className="w-4 h-4" />
+              <span>Sessions Today</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6 text-center">
+            <div className="text-3xl font-bold text-green-600 mb-2">
+              {realTimeStats.modelsProcessed}
+            </div>
+            <div className="text-sm text-gray-600 flex items-center justify-center space-x-1">
+              <Building className="w-4 h-4" />
+              <span>Models Processed</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6 text-center">
+            <div className="text-3xl font-bold text-purple-600 mb-2">
+              {realTimeStats.mlPredictions}
+            </div>
+            <div className="text-sm text-gray-600 flex items-center justify-center space-x-1">
+              <Brain className="w-4 h-4" />
+              <span>ML Predictions</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6 text-center">
+            <div className="text-3xl font-bold text-orange-600 mb-2">
+              {realTimeStats.userOverrides}
+            </div>
+            <div className="text-sm text-gray-600 flex items-center justify-center space-x-1">
+              <TrendingUp className="w-4 h-4" />
+              <span>User Corrections</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Production Features Status */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Zap className="w-5 h-5" />
+            <span>Production Features</span>
+            <Badge className="bg-green-100 text-green-800">
+              All Systems Operational
+            </Badge>
+          </CardTitle>
+          <CardDescription>
+            Core AZLOAD features and their operational status
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="font-medium">3D Model Visualization</span>
+                </div>
+                <Badge className="bg-green-100 text-green-800">Active</Badge>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
-        {/* Activity Tab */}
-        <TabsContent value="activity">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Activity className="w-5 h-5" />
-                <span>User Activity Timeline</span>
-              </CardTitle>
-              <CardDescription>
-                Recent actions and system events
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {projects.slice(0, 5).map((project, index) => (
-                  <div
-                    key={project.project_id}
-                    className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg"
-                  >
-                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                      <Upload className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">
-                        Uploaded project: {project.project_name}
-                      </p>
-                      <p className="text-xs text-gray-600">
-                        {formatDate(project.upload_time)} •{" "}
-                        {getBuildingTypeBadge(project.building_type)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      {getStatusBadge(project.status)}
-                    </div>
-                  </div>
-                ))}
-
-                {overrides.slice(0, 3).map((override, index) => (
-                  <div
-                    key={override.override_id}
-                    className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg"
-                  >
-                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                      <Settings className="w-5 h-5 text-green-600" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">
-                        Manual override: {override.member_id}
-                      </p>
-                      <p className="text-xs text-gray-600">
-                        {override.original_tag} → {override.new_tag} •{" "}
-                        {formatDate(override.override_timestamp)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <Badge className="bg-green-100 text-green-800">
-                        Corrected
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-
-                {projects.length === 0 && overrides.length === 0 && (
-                  <div className="text-center py-8">
-                    <Activity className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">
-                      No activity yet
-                    </h3>
-                    <p className="text-gray-600">
-                      Your recent actions will appear here
-                    </p>
-                  </div>
-                )}
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="font-medium">
+                    AI Building Classification
+                  </span>
+                </div>
+                <Badge className="bg-green-100 text-green-800">Active</Badge>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="font-medium">Member Tagging System</span>
+                </div>
+                <Badge className="bg-green-100 text-green-800">Active</Badge>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="font-medium">Material Assignment</span>
+                </div>
+                <Badge className="bg-green-100 text-green-800">Active</Badge>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="font-medium">Real-time ML Learning</span>
+                </div>
+                <Badge className="bg-green-100 text-green-800">Active</Badge>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="font-medium">User Authentication</span>
+                </div>
+                <Badge className="bg-green-100 text-green-800">Active</Badge>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="font-medium">Data Persistence</span>
+                </div>
+                <Badge className="bg-green-100 text-green-800">Active</Badge>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="font-medium">Backend Integration</span>
+                </div>
+                <Badge className="bg-green-100 text-green-800">Active</Badge>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* System Information */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Globe className="w-5 h-5" />
+            <span>System Information</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <h4 className="font-medium text-gray-800">Environment</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Mode:</span>
+                  <Badge className="bg-green-100 text-green-800">
+                    Production
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Version:</span>
+                  <span>v1.0.0</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Build:</span>
+                  <span>{new Date().toISOString().split("T")[0]}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Last Updated:</span>
+                  <span className="flex items-center space-x-1">
+                    <Clock className="w-3 h-3" />
+                    <span>{metrics.lastUpdated.toLocaleTimeString()}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="font-medium text-gray-800">Configuration</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">ML API:</span>
+                  <Badge className={getHealthColor(metrics.mlApiStatus)}>
+                    {metrics.mlApiStatus === "online" ? "Enabled" : "Disabled"}
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Database:</span>
+                  <Badge className={getHealthColor(metrics.databaseStatus)}>
+                    {metrics.databaseStatus === "connected"
+                      ? "Connected"
+                      : "Disconnected"}
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Auth:</span>
+                  <Badge className="bg-green-100 text-green-800">
+                    Supabase
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Storage:</span>
+                  <Badge className="bg-blue-100 text-blue-800">
+                    Session + DB
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -8,138 +8,192 @@ import {
   LoadType,
   Node,
   Member,
+  MasterControlPoint,
 } from "@/types/model";
+import { AuditLogger } from "@/lib/audit-logger";
 
 // ASCE 7-16 Load Calculation Engine
 export class LoadCalculationEngine {
   static calculateWindLoads(
     model: StructuralModel,
     parameters: WindLoadParameters,
+    mcp?: MasterControlPoint,
   ): LoadCalculationResult {
-    const loads: Load[] = [];
-    const warnings: string[] = [];
-    const codeReferences: string[] = [
-      "ASCE 7-16 Chapter 27 - Wind Loads on Buildings - MWFRS",
-      "ASCE 7-16 Chapter 30 - Wind Loads on Buildings - C&C",
-    ];
+    // Enhanced wind load calculation with MCP integration and code compliance
+    const auditId = AuditLogger.startCalculation("WIND", model.id, mcp?.id);
 
-    // Validate parameters
-    if (parameters.basicWindSpeed < 85 || parameters.basicWindSpeed > 200) {
-      warnings.push("Basic wind speed outside typical range (85-200 mph)");
-    }
+    try {
+      // Validate inputs using code engine
+      const validation = this.validateWindParameters(parameters, mcp);
+      if (!validation.isValid) {
+        AuditLogger.logError(
+          auditId,
+          `Wind load validation failed: ${validation.errors.join(", ")}`,
+        );
+        throw new Error(
+          `Wind load validation failed: ${validation.errors.join(", ")}`,
+        );
+      }
+      const loads: Load[] = [];
+      const warnings: string[] = [];
+      const codeReferences: string[] = [
+        "ASCE 7-16 Chapter 27 - Wind Loads on Buildings - MWFRS",
+        "ASCE 7-16 Chapter 30 - Wind Loads on Buildings - C&C",
+      ];
 
-    // Calculate design wind pressure (ASCE 7-16 Eq. 27.3-1)
-    const qz = this.calculateVelocityPressure(parameters);
-    const G = parameters.gustFactor;
-    const Cp = this.calculatePressureCoefficients(model, parameters);
-    const GCpi = parameters.internalPressureCoefficient;
+      // Validate parameters
+      if (parameters.basicWindSpeed < 85 || parameters.basicWindSpeed > 200) {
+        warnings.push("Basic wind speed outside typical range (85-200 mph)");
+      }
 
-    // Apply wind loads to building surfaces
-    const windwardPressure = qz * G * Cp.windward - qz * GCpi;
-    const leewardPressure = qz * G * Cp.leeward - qz * GCpi;
-    const sidewallPressure = qz * G * Cp.sidewall - qz * GCpi;
-    const roofPressure = qz * G * Cp.roof - qz * GCpi;
+      // Calculate design wind pressure (ASCE 7-16 Eq. 27.3-1)
+      const qz = this.calculateVelocityPressure(parameters);
+      const G = parameters.gustFactor;
+      const Cp = this.calculatePressureCoefficients(model, parameters);
+      const GCpi = parameters.internalPressureCoefficient;
 
-    // Generate loads for structural members
-    model.members.forEach((member, index) => {
-      const memberLoads = this.generateWindLoadsForMember(
-        member,
-        model,
+      // Apply wind loads to building surfaces
+      const windwardPressure = qz * G * Cp.windward - qz * GCpi;
+      const leewardPressure = qz * G * Cp.leeward - qz * GCpi;
+      const sidewallPressure = qz * G * Cp.sidewall - qz * GCpi;
+      const roofPressure = qz * G * Cp.roof - qz * GCpi;
+
+      // Generate loads for structural members
+      model.members.forEach((member, index) => {
+        const memberLoads = this.generateWindLoadsForMember(
+          member,
+          model,
+          parameters,
+          { windwardPressure, leewardPressure, sidewallPressure, roofPressure },
+        );
+        loads.push(...memberLoads);
+      });
+
+      const summary = this.calculateLoadSummary(loads);
+
+      // Log successful calculation
+      AuditLogger.logSuccess(auditId, {
+        loadType: "WIND",
+        totalLoads: loads.length,
+        totalForce: summary.totalForce,
+        warnings: warnings.length,
+      });
+
+      return {
+        loadType: "WIND",
         parameters,
-        { windwardPressure, leewardPressure, sidewallPressure, roofPressure },
+        loads,
+        summary,
+        codeReferences,
+        warnings,
+      };
+    } catch (error) {
+      AuditLogger.logError(
+        auditId,
+        error instanceof Error ? error.message : "Unknown error",
       );
-      loads.push(...memberLoads);
-    });
-
-    const summary = this.calculateLoadSummary(loads);
-
-    return {
-      loadType: "WIND",
-      parameters,
-      loads,
-      summary,
-      codeReferences,
-      warnings,
-    };
+      throw error;
+    }
   }
 
   static calculateSeismicLoads(
     model: StructuralModel,
     parameters: SeismicLoadParameters,
+    mcp?: MasterControlPoint,
   ): LoadCalculationResult {
-    const loads: Load[] = [];
-    const warnings: string[] = [];
-    const codeReferences: string[] = [
-      "ASCE 7-16 Chapter 12 - Seismic Design Requirements",
-      "ASCE 7-16 Section 12.8 - Equivalent Lateral Force Procedure",
-    ];
+    const auditId = AuditLogger.startCalculation("SEISMIC", model.id, mcp?.id);
 
-    // Calculate design response spectrum parameters (ASCE 7-16 Section 11.4)
-    const Sds = (2 / 3) * parameters.fa * parameters.ss;
-    const Sd1 = (2 / 3) * parameters.fv * parameters.s1;
+    try {
+      const loads: Load[] = [];
+      const warnings: string[] = [];
+      const codeReferences: string[] = [
+        "ASCE 7-16 Chapter 12 - Seismic Design Requirements",
+        "ASCE 7-16 Section 12.8 - Equivalent Lateral Force Procedure",
+      ];
 
-    if (Sds < 0.167) {
-      warnings.push("Low seismic design category - minimal seismic loads");
-    }
+      // Calculate design response spectrum parameters (ASCE 7-16 Section 11.4)
+      const Sds = (2 / 3) * parameters.fa * parameters.ss;
+      const Sd1 = (2 / 3) * parameters.fv * parameters.s1;
 
-    // Calculate seismic response coefficient (ASCE 7-16 Eq. 12.8-2)
-    const Cs = Math.min(
-      Sds /
-        (parameters.responseModificationFactor / parameters.importanceFactor),
-      Sd1 /
-        ((parameters.responseModificationFactor / parameters.importanceFactor) *
-          1.0), // T = 1.0 assumed
-    );
+      if (Sds < 0.167) {
+        warnings.push("Low seismic design category - minimal seismic loads");
+      }
 
-    // Calculate base shear (ASCE 7-16 Eq. 12.8-1)
-    const V = Cs * parameters.seismicWeight;
+      // Calculate seismic response coefficient (ASCE 7-16 Eq. 12.8-2)
+      const Cs = Math.min(
+        Sds /
+          (parameters.responseModificationFactor / parameters.importanceFactor),
+        Sd1 /
+          ((parameters.responseModificationFactor /
+            parameters.importanceFactor) *
+            1.0), // T = 1.0 assumed
+      );
 
-    // Distribute seismic forces to structural levels
-    const buildingHeight = model.geometry?.totalHeight || 10;
-    const seismicForcePerLevel =
-      V / Math.max(1, Math.floor(buildingHeight / 3));
+      // Calculate base shear (ASCE 7-16 Eq. 12.8-1)
+      const V = Cs * parameters.seismicWeight;
 
-    // Apply seismic loads to columns and shear walls
-    model.members
-      .filter((m) => m.type === "COLUMN" || m.tag?.includes("COLUMN"))
-      .forEach((member, index) => {
-        const startNode = model.nodes.find((n) => n.id === member.startNodeId);
-        const endNode = model.nodes.find((n) => n.id === member.endNodeId);
+      // Distribute seismic forces to structural levels
+      const buildingHeight = model.geometry?.totalHeight || 10;
+      const seismicForcePerLevel =
+        V / Math.max(1, Math.floor(buildingHeight / 3));
 
-        if (startNode && endNode) {
-          const memberHeight = Math.abs(endNode.z - startNode.z);
-          const forceRatio = memberHeight / buildingHeight;
+      // Apply seismic loads to columns and shear walls
+      model.members
+        .filter((m) => m.type === "COLUMN" || m.tag?.includes("COLUMN"))
+        .forEach((member, index) => {
+          const startNode = model.nodes.find(
+            (n) => n.id === member.startNodeId,
+          );
+          const endNode = model.nodes.find((n) => n.id === member.endNodeId);
 
-          // X-direction seismic force
-          loads.push({
-            id: `SEISMIC_X_${member.id}`,
-            type: "NODAL",
-            targetId: endNode.id,
-            direction: "X",
-            magnitude: seismicForcePerLevel * forceRatio,
-          });
+          if (startNode && endNode) {
+            const memberHeight = Math.abs(endNode.z - startNode.z);
+            const forceRatio = memberHeight / buildingHeight;
 
-          // Y-direction seismic force
-          loads.push({
-            id: `SEISMIC_Y_${member.id}`,
-            type: "NODAL",
-            targetId: endNode.id,
-            direction: "Y",
-            magnitude: seismicForcePerLevel * forceRatio,
-          });
-        }
+            // X-direction seismic force
+            loads.push({
+              id: `SEISMIC_X_${member.id}`,
+              type: "NODAL",
+              targetId: endNode.id,
+              direction: "X",
+              magnitude: seismicForcePerLevel * forceRatio,
+            });
+
+            // Y-direction seismic force
+            loads.push({
+              id: `SEISMIC_Y_${member.id}`,
+              type: "NODAL",
+              targetId: endNode.id,
+              direction: "Y",
+              magnitude: seismicForcePerLevel * forceRatio,
+            });
+          }
+        });
+
+      const summary = this.calculateLoadSummary(loads);
+
+      AuditLogger.logSuccess(auditId, {
+        loadType: "SEISMIC",
+        totalLoads: loads.length,
+        baseShear: V,
+        designCategory: Sds >= 0.75 ? "D" : Sds >= 0.5 ? "C" : "B",
       });
 
-    const summary = this.calculateLoadSummary(loads);
-
-    return {
-      loadType: "SEISMIC",
-      parameters,
-      loads,
-      summary,
-      codeReferences,
-      warnings,
-    };
+      return {
+        loadType: "SEISMIC",
+        parameters,
+        loads,
+        summary,
+        codeReferences,
+        warnings,
+      };
+    } catch (error) {
+      AuditLogger.logError(
+        auditId,
+        error instanceof Error ? error.message : "Unknown error",
+      );
+      throw error;
+    }
   }
 
   static calculateSnowLoads(
@@ -729,5 +783,151 @@ export class LoadCombinationGenerator {
     }
 
     return combinations;
+  }
+}
+
+// Enhanced validation methods
+export class LoadValidationEngine {
+  static validateWindParameters(
+    parameters: WindLoadParameters,
+    mcp?: MasterControlPoint,
+  ): { isValid: boolean; errors: string[]; warnings: string[] } {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Basic wind speed validation
+    if (parameters.basicWindSpeed < 85 || parameters.basicWindSpeed > 200) {
+      warnings.push("Basic wind speed outside typical range (85-200 mph)");
+    }
+
+    // Building height validation
+    if (parameters.buildingHeight <= 0) {
+      errors.push("Building height must be positive");
+    }
+
+    // MCP consistency checks
+    if (mcp) {
+      if (
+        Math.abs(parameters.buildingHeight - mcp.dimensions.totalHeight) > 0.1
+      ) {
+        warnings.push("Wind parameter building height differs from MCP data");
+      }
+
+      if (
+        Math.abs(parameters.buildingLength - mcp.dimensions.buildingLength) >
+        0.1
+      ) {
+        warnings.push("Wind parameter building length differs from MCP data");
+      }
+    }
+
+    // Exposure category validation
+    if (!["B", "C", "D"].includes(parameters.exposureCategory)) {
+      errors.push("Invalid exposure category. Must be B, C, or D");
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      warnings,
+    };
+  }
+
+  static validateSeismicParameters(
+    parameters: SeismicLoadParameters,
+    mcp?: MasterControlPoint,
+  ): { isValid: boolean; errors: string[]; warnings: string[] } {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Spectral acceleration validation
+    if (parameters.ss < 0 || parameters.s1 < 0) {
+      errors.push("Spectral accelerations must be non-negative");
+    }
+
+    // Site factors validation
+    if (parameters.fa <= 0 || parameters.fv <= 0) {
+      errors.push("Site factors must be positive");
+    }
+
+    // Response modification factor validation
+    if (
+      parameters.responseModificationFactor < 1 ||
+      parameters.responseModificationFactor > 8
+    ) {
+      warnings.push("Response modification factor outside typical range (1-8)");
+    }
+
+    // Seismic weight validation
+    if (parameters.seismicWeight <= 0) {
+      errors.push("Seismic weight must be positive");
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      warnings,
+    };
+  }
+}
+
+// Load assignment to 3D model
+export class LoadAssignmentEngine {
+  static assignLoadsToModel(
+    model: StructuralModel,
+    loadResults: LoadCalculationResult[],
+  ): StructuralModel {
+    const updatedModel = { ...model };
+
+    // Create load assignments for visualization
+    const loadAssignments: any[] = [];
+
+    loadResults.forEach((result) => {
+      result.loads.forEach((load) => {
+        if (load.type === "MEMBER") {
+          const member = updatedModel.members.find(
+            (m) => m.id === load.targetId,
+          );
+          if (member) {
+            loadAssignments.push({
+              memberId: member.id,
+              loadType: result.loadType,
+              direction: load.direction,
+              magnitude: load.magnitude,
+              distribution: load.distribution || "UNIFORM",
+              color: this.getLoadColor(result.loadType),
+            });
+          }
+        } else if (load.type === "NODAL") {
+          const node = updatedModel.nodes.find((n) => n.id === load.targetId);
+          if (node) {
+            loadAssignments.push({
+              nodeId: node.id,
+              loadType: result.loadType,
+              direction: load.direction,
+              magnitude: load.magnitude,
+              color: this.getLoadColor(result.loadType),
+            });
+          }
+        }
+      });
+    });
+
+    // Add load assignments to model
+    updatedModel.loadAssignments = loadAssignments;
+
+    return updatedModel;
+  }
+
+  private static getLoadColor(loadType: LoadType): string {
+    const colors = {
+      WIND: "#3B82F6", // Blue
+      SEISMIC: "#EF4444", // Red
+      SNOW: "#06B6D4", // Cyan
+      LIVE: "#10B981", // Green
+      DEAD: "#6B7280", // Gray
+      CRANE: "#F59E0B", // Orange
+    };
+    return colors[loadType] || "#8B5CF6";
   }
 }

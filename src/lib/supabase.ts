@@ -4,8 +4,18 @@ import type { Database } from "@/types/supabase";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Simplified logging - only log if there are issues
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Missing Supabase environment variables");
+  console.error("❌ SUPABASE: Missing environment variables:", {
+    VITE_SUPABASE_URL: !!supabaseUrl,
+    VITE_SUPABASE_ANON_KEY: !!supabaseAnonKey,
+  });
+}
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    "Missing Supabase environment variables. Please check your project settings.",
+  );
 }
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
@@ -13,6 +23,8 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
+    // Set the correct site URL for email confirmation
+    redirectTo: window.location.origin,
   },
   realtime: {
     params: {

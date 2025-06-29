@@ -564,7 +564,8 @@ export class UniversalParser {
       );
     }
 
-    // Calculate enhanced geometry properties
+    // Calculate enhanced geometry properties with accurate bay spacing
+    const baySpacings = this.calculateBaySpacings(nodes, members);
     const boundingBox = this.calculateBoundingBox(nodes);
     const geometryStats = this.calculateGeometryStats(nodes, members);
 
@@ -584,10 +585,12 @@ export class UniversalParser {
         boundingBox: boundingBox,
         coordinateSystem: "STAAD",
         origin: { x: 0, y: 0, z: 0 },
-        buildingLength: geometryStats.length,
+        buildingLength: baySpacings.totalLength,
         buildingWidth: geometryStats.width,
         totalHeight: geometryStats.height,
         centerPoint: geometryStats.center,
+        baySpacings: baySpacings.spacings,
+        frameCount: baySpacings.frameCount,
       },
       parsingAccuracy: {
         dimensionalAccuracy: 100,
@@ -887,6 +890,7 @@ export class UniversalParser {
     }
 
     // Calculate enhanced geometry properties
+    const baySpacings = this.calculateBaySpacings(nodes, members);
     const boundingBox = this.calculateBoundingBox(nodes);
     const geometryStats = this.calculateGeometryStats(nodes, members);
 
@@ -906,10 +910,12 @@ export class UniversalParser {
         boundingBox: boundingBox,
         coordinateSystem: "SAP2000",
         origin: { x: 0, y: 0, z: 0 },
-        buildingLength: geometryStats.length,
+        buildingLength: baySpacings.totalLength,
         buildingWidth: geometryStats.width,
         totalHeight: geometryStats.height,
         centerPoint: geometryStats.center,
+        baySpacings: baySpacings.spacings,
+        frameCount: baySpacings.frameCount,
       },
       parsingAccuracy: {
         dimensionalAccuracy: 100,
@@ -1132,6 +1138,79 @@ export class UniversalParser {
           hasMaterials: model.materialValidation?.materialsAssigned || false,
           timestamp: new Date().toISOString(),
           memoryCleanup: "COMPLETED",
+
+          /**
+           * Calculate actual bay spacing from model geometry
+           * This extracts real grid spacing sequence (e.g., 6.3, 6, 6, 6, 6.2 meters)
+           */
+          calculateActualBaySpacing(
+            nodes: Node[],
+            members: Member[],
+          ): {
+            spacings: number[];
+            frameCount: number;
+            totalLength: number;
+          } {
+            console.log(
+              "📏 CALCULATING ACTUAL BAY SPACING from model geometry...",
+            );
+
+            if (nodes.length === 0) {
+              return { spacings: [30], frameCount: 1, totalLength: 30 };
+            }
+
+            try {
+              // Group nodes by their Z-coordinate (along building length)
+              const zCoordinates = [...new Set(nodes.map((n) => n.z))].sort(
+                (a, b) => a - b,
+              );
+
+              if (zCoordinates.length < 2) {
+                console.warn(
+                  "⚠️ Insufficient Z-coordinates for bay spacing calculation",
+                );
+                return { spacings: [30], frameCount: 1, totalLength: 30 };
+              }
+
+              // Calculate spacing between consecutive frame lines
+              const spacings: number[] = [];
+              for (let i = 1; i < zCoordinates.length; i++) {
+                const spacing = Math.abs(zCoordinates[i] - zCoordinates[i - 1]);
+                if (spacing > 0.1) {
+                  // Filter out very small differences (tolerance)
+                  spacings.push(Math.round(spacing * 100) / 100); // Round to 2 decimal places
+                }
+              }
+
+              if (spacings.length === 0) {
+                console.warn("⚠️ No valid bay spacings found");
+                return { spacings: [30], frameCount: 1, totalLength: 30 };
+              }
+
+              const totalLength = spacings.reduce(
+                (sum, spacing) => sum + spacing,
+                0,
+              );
+              const frameCount = spacings.length + 1; // Number of frames = number of bays + 1
+
+              console.log("✅ ACTUAL BAY SPACING CALCULATED:", {
+                spacings: spacings,
+                frameCount: frameCount,
+                totalLength: totalLength.toFixed(2),
+                averageSpacing: (totalLength / spacings.length).toFixed(2),
+                zCoordinates: zCoordinates.map((z) => z.toFixed(2)),
+              });
+
+              return {
+                spacings: spacings,
+                frameCount: frameCount,
+                totalLength: totalLength,
+              };
+            } catch (error) {
+              console.error("❌ Bay spacing calculation failed:", error);
+              return { spacings: [30], frameCount: 1, totalLength: 30 };
+            }
+          },
         },
       );
     } catch (error) {
@@ -1231,6 +1310,52 @@ export class UniversalParser {
       hash = hash & hash; // Convert to 32-bit integer
     }
     return Math.abs(hash).toString(16);
+  }
+
+  /**
+   * Calculate bay spacings for enhanced geometry
+   */
+  private calculateBaySpacings(
+    nodes: Node[],
+    members: Member[],
+  ): {
+    frameCount: number;
+    spacings: number[];
+    totalLength: number;
+  } {
+    const uniqueStartNodes = new Set(
+      members.map((m) => m.startNodeId).filter((id) => id !== ""),
+    );
+
+    const uniqueEndNodes = new Set(
+      members.map((m) => m.endNodeId).filter((id) => id !== ""),
+    );
+
+    const allNodes = new Set([...uniqueStartNodes, ...uniqueEndNodes]);
+
+    const nodePositions = nodes.reduce((acc, node) => {
+      acc[node.id] = { x: node.x, y: node.y, z: node.z };
+      return acc;
+    }, {});
+
+    const frameCount = allNodes.size;
+    const spacings = Array.from({ length: frameCount }, (_, i) => {
+      const node1 = nodePositions[Array.from(allNodes)[i]];
+      const node2 = nodePositions[Array.from(allNodes)[(i + 1) % frameCount]];
+      return Math.sqrt(
+        (node1.x - node2.x) ** 2 +
+          (node1.y - node2.y) ** 2 +
+          (node1.z - node2.z) ** 2,
+      );
+    });
+
+    const totalLength = spacings.reduce((acc, spacing) => acc + spacing, 0);
+
+    return {
+      frameCount,
+      spacings,
+      totalLength,
+    };
   }
 }
 
